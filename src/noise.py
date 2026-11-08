@@ -39,14 +39,29 @@ second differences ~0.4 m: velocity-based signals (a still ball, a player moving
 were mostly noise on the bench and clean on BAR-ATH, a shift between training and use. v3 keeps
 the 0.15 m size but lets the error drift, low-passed over DRIFT_FRAMES.
 
-Deterministic for a given seed, so a benchmark run reproduces exactly.
+The ball filter (v5). BAR-ATH's tracker smooths the ball: a kick is spread over about half a second,
+so its ball shows 2.8 direction changes a minute over 4 frames against about 18 on the clean
+external games, and its kicks read softer. Features trained on sharp external kicks would trust them more than
+BAR-ATH's deserve. So the ball goes through a zero-phase Gaussian (smooth_ball) of a width drawn per
+copy over BALL_SMOOTH_SD -- a range, including no smoothing, so that no single BAR-ATH number decides
+the training data -- and in-play ball gaps get a per-copy median length drawn over
+BALL_GAP_MEDIAN_RANGE (BAR-ATH loses the ball in long gaps; the old fixed median was 40 frames).
+BAR-ATH's ratio of 4-frame to 12-frame kinks (0.19, coverage.kink_rates) matches a Gaussian of
+about 7.5-8 frames on the clean games, so the range runs to 10. B1 in docs/sprint_checklist.md found
+no delay in BAR-ATH's ball, so the filter is zero-phase.
+
+Deterministic for a given seed, so a benchmark run reproduces exactly. Each copy draws from its own
+streams (copy_streams), keyed on the game and the dropout level.
 """
 
+import zlib
+
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 from .match import A, D, H, X
 
-VERSION = 4              # part of every cached degraded game's name; bump on any change here
+VERSION = 5              # part of every cached degraded game's name; bump on any change here
 TEAM_SLOTS = 23         # 46 slots for two teams, as in the BAR-ATH metadata
 PLAYER_STARTS_PER_MIN = 11.3 / 22
 PLAYER_MISSING_SHARE = 1 - 20.5 / 22
@@ -54,7 +69,10 @@ CROWD_RADIUS = 2.0       # metres; a player this close to another is likelier to
 CROWD_BOOST = 3.0
 POSITION_NOISE = 0.15    # metres, players and ball
 DRIFT_FRAMES = 12        # ~0.5 s: how slowly that error wanders (Gaussian low-pass sd)
-BALL_GAP_MEDIAN = 40     # frames; a lost-in-play ball comes back within a couple of seconds
+BALL_GAP_MEDIAN = 40     # frames; drop_ball_in_play's default gap median (v4 used it for every copy)
+BALL_GAP_MEDIAN_RANGE = (40, 200)  # frames; v5 draws each copy's median log-uniformly from this
+BALL_SMOOTH_SD = (0.0, 10.0)       # frames; v5 draws each copy's ball-filter width uniformly from this
+MIN_SMOOTH_SD = 0.5      # frames; narrower is no smoothing (scipy's kernel is NaN at 0)
 BALL_CROWD_RADIUS = 5.0
 DEAD_MISSING = 0.75      # share of stoppages with the ball gone; BAR-ATH before tagged restarts
 RESTART_EDGE_SD = 25     # frames; how far a dead-ball gap's ends stray from the stoppage's
@@ -266,7 +284,47 @@ def render_dead_ball(match, rng, dead_missing=DEAD_MISSING):
     return bx, by
 
 
-def drop_ball_in_play(match, rng, alive_missing, bx=None, by=None):
+def copy_streams(clean_name, alive_missing, seed):
+    """Independent random streams for one degraded copy: parameters, dead ball, live ball, drift,
+    players.
+
+    Up to v4 every copy drew from one default_rng(seed) with the same seed, so a setting drawn from
+    it would have been the same for every game. Keying on the game and the dropout level gives each
+    copy its own draws, and separate streams keep a change to one part of the simulator from
+    reshuffling the others. zlib.crc32, not hash(), which changes between Python runs.
+    """
+    entropy = [seed, zlib.crc32(clean_name.encode("utf-8")), int(round(1000 * alive_missing))]
+    return [np.random.default_rng(s) for s in np.random.SeedSequence(entropy).spawn(5)]
+
+
+def noise_params(clean_name, alive_missing, seed):
+    """One copy's drawn settings: ball-filter sd and in-play gap median, both in frames.
+    Recomputable at any time, since the cached .npz keeps arrays only."""
+    rng = copy_streams(clean_name, alive_missing, seed)[0]
+    sd = float(rng.uniform(*BALL_SMOOTH_SD))
+    low, high = np.log(BALL_GAP_MEDIAN_RANGE[0]), np.log(BALL_GAP_MEDIAN_RANGE[1])
+    return {"ball_sd": sd, "gap_median": float(np.exp(rng.uniform(low, high)))}
+
+
+def smooth_ball(bx, by, sd):
+    """The ball through a zero-phase Gaussian of sd frames, within each tracked run, as a tracker's
+    ball filter would leave it. Odd reflection at a run's ends keeps the ball's velocity there;
+    plain or nearest padding would fake a slowdown before every gap."""
+    if sd < MIN_SMOOTH_SD:
+        return bx, by
+    out_x, out_y = bx.copy(), by.copy()
+    pad = int(4 * sd + 0.5)  # gaussian_filter1d's own radius at truncate=4
+    for start, stop in zip(*_runs(~np.isnan(bx))):
+        if stop - start < 3:
+            continue
+        for source, target in ((bx, out_x), (by, out_y)):
+            padded = np.pad(source[start:stop].astype(np.float64), pad, mode="reflect",
+                            reflect_type="odd")
+            target[start:stop] = gaussian_filter1d(padded, sd, mode="nearest")[pad:pad + stop - start]
+    return out_x, out_y
+
+
+def drop_ball_in_play(match, rng, alive_missing, bx=None, by=None, gap_median=BALL_GAP_MEDIAN):
     """Add live-ball gaps, likelier near crowds, until alive_missing of live frames lack a ball."""
     bx = match.bx.copy() if bx is None else bx.copy()
     by = match.by.copy() if by is None else by.copy()
@@ -286,7 +344,7 @@ def drop_ball_in_play(match, rng, alive_missing, bx=None, by=None):
 
     while missing[alive].sum() < target:
         frame = rng.choice(len(bx), p=weight)
-        length = int(rng.lognormal(np.log(BALL_GAP_MEDIAN), 0.8)) + 1
+        length = int(rng.lognormal(np.log(gap_median), 0.8)) + 1
         missing[frame:frame + length] = True
     bx[missing] = np.nan
     by[missing] = np.nan
@@ -295,14 +353,16 @@ def drop_ball_in_play(match, rng, alive_missing, bx=None, by=None):
 
 def degrade(match, alive_missing=0.15, seed=0):
     """A copy of a labelled match with BAR-ATH-like tracking. Labels and periods are untouched."""
-    rng = np.random.default_rng(seed)
+    params = noise_params(match.name, alive_missing, seed)
+    _, dead_rng, ball_rng, drift_rng, player_rng = copy_streams(match.name, alive_missing, seed)
     out = match.copy()
-    bx, by = render_dead_ball(match, rng)
-    out.bx, out.by = drop_ball_in_play(match, rng, alive_missing, bx, by)
-    noise = _drift(rng, len(out.bx))
+    bx, by = render_dead_ball(match, dead_rng)
+    bx, by = smooth_ball(bx, by, params["ball_sd"])
+    out.bx, out.by = drop_ball_in_play(match, ball_rng, alive_missing, bx, by, params["gap_median"])
+    noise = _drift(drift_rng, len(out.bx))
     out.bx += noise[:, 0]
     out.by += noise[:, 1]
-    out.px, out.py, out.team = drop_players(match, rng)
+    out.px, out.py, out.team = drop_players(match, player_rng)
     out.name = noisy_name(match.name, alive_missing, seed)
     return out
 

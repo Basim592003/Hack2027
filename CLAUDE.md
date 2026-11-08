@@ -115,6 +115,11 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
   - re-renders the ball during stoppages, gone in about 75% of them with edges blurred by about ±1 s;
   - since v4, renders the whole path of the ball through every stoppage (`dead_ball_path`). It runs on and slows, is fetched or a new ball appears, is carried by the restart taker (the player nearest the restart spot when play resumes), and is set on the spot. Neither source has a real dead ball to copy: IDSSE freezes it, Metrica blanks it;
   - adds live-ball dropout as a parameter.
+  - since v5 (2026-11-08, sprint item B2), the bench in use:
+    - each copy has its own random streams (`copy_streams`, keyed on the game, dropout level and seed); up to v4 every copy shared seed 0;
+    - the ball goes through a zero-phase Gaussian of σ drawn from 0–10 frames (`smooth_ball`). BAR-ATH's ratio of ±4- to ±12-frame kinks (0.19, `coverage.kink_rates`) matches σ ≈ 7.5–8 on clean games of both sources;
+    - in-play ball gaps get a median drawn from 40–200 frames;
+    - `noise_params` recomputes a copy's draws, and `experiment compare` uses them to report results by smoothing band.
   - Cached names carry `noise.VERSION`; **bump it after any simulator change.**
 - `src/bench.py`: `bench_games()` returns 10 clean games × live-dropout levels (0.10, 0.20) = 20 degraded games. `run(predict)` scores any `Match -> codes` function with the official scorer.
   - **Always report results per source, never pooled**, because the sources' label conventions differ.

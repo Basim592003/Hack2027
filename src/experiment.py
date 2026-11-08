@@ -5,6 +5,8 @@ whatever the code and flags are when it runs:
 
     python -m src.experiment run NAME        # out-of-fold P(dead) and P(home), joint decode, scores
     python -m src.experiment compare A B     # two saved runs side by side, per source
+    python -m src.experiment oracles         # headroom: true D, true team, perfect switch timing
+    python -m src.experiment crossbench --train 4 --test 5   # trained on one noise version, scored on another
 
 Scoring. BAR-ATH's answer key counts *controlled* possession (CHALLENGE.md), and the external labels give
 it to the last toucher, so every decode is scored against both: the labels as they are ("lt") and
@@ -30,9 +32,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from . import controlled, deadball, decode, features, possession, touches
+from . import controlled, deadball, decode, features, noise, possession, touches
 from .bench import bench_games, source_of
-from .match import A, CACHE_DIR, D, H, X
+from .match import A, CACHE_DIR, D, H, X, Match
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "evaluation"))
@@ -196,10 +198,7 @@ def run(name, games=None):
         labels = np.where(match.period > 0, labels, X).astype(np.int8)
         rows.append(dict(game_row(match, labels, p_home), dead_tag=dead_tag, home_tag=home_tag))
     table = pd.DataFrame(rows)
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    table.to_csv(os.path.join(RESULTS_DIR, "{}.csv".format(name)), index=False)
-    print("== {} (dead @{}, home @{})".format(name, dead_tag, home_tag))
-    print(summary(table).to_string(float_format="%.4f"))
+    save(name, table, "dead @{}, home @{}".format(dead_tag, home_tag))
     return table
 
 
@@ -214,6 +213,91 @@ def summary(table):
 
 def load(name):
     return pd.read_csv(os.path.join(RESULTS_DIR, "{}.csv".format(name)))
+
+
+SMOOTHING_BANDS = (0.0, 4.0, 7.0, np.inf)   # frames; BAR-ATH's ball reads as about 7.5-8 (noise.py)
+
+
+def ball_sd(copy):
+    """The ball-filter width (frames) a degraded copy was made with: 0 before noise v5, NaN for a
+    version other than the current one (noise_params follows today's settings only)."""
+    clean, made = copy.split("~")[:2]                      # e.g. "v5live10s0"
+    version = int(made[1:made.index("live")])
+    if version < 5:
+        return 0.0
+    if version != noise.VERSION:
+        return np.nan
+    level, seed = int(made.split("live")[1][:2]) / 100, int(made.split("s")[-1])
+    return noise.noise_params(clean, level, seed)["ball_sd"]
+
+
+def by_smoothing(both):
+    """Controlled spellF1, B against A, by the ball smoothing each copy was made with (all sources
+    together: the BAR-ATH-like band holds few copies of each)."""
+    sd = both["copy"].map(ball_sd)
+    if not (sd > 0).any():
+        return None
+    diff = both["spellF1_ctl_b"] - both["spellF1_ctl_a"]
+    band = pd.cut(sd, SMOOTHING_BANDS, right=False,
+                  labels=["sd<4", "sd 4-7", "sd>=7 (BAR-ATH-like)"])
+    grouped = diff.groupby(band, observed=True)
+    return pd.DataFrame({"copies": grouped.size(), "diff": grouped.mean(),
+                         "won": grouped.agg(lambda d: "{}/{}".format(int((d > 0).sum()), len(d)))})
+
+
+def save(name, table, header):
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    table.to_csv(os.path.join(RESULTS_DIR, "{}.csv".format(name)), index=False)
+    print("== {} ({})".format(name, header))
+    print(summary(table).to_string(float_format="%.4f"))
+
+
+# -- one noise version against another --------------------------------------------------------
+
+def games_at(version, current):
+    """The bench at noise version `version`: `current` when that is noise.VERSION, otherwise the
+    cached copies of the same games under the older version's names (they must be cached)."""
+    if version == noise.VERSION:
+        return current
+    out = []
+    for match in current:
+        name = match.name.replace("~v{}".format(noise.VERSION), "~v{}".format(version))
+        old = Match.load(name)
+        old.name = name
+        out.append(old)
+    return out
+
+
+def crossbench(train_version, test_version):
+    """Train on one noise version's bench, score on another's, leaving one clean game out -- the
+    like-for-like test for a simulator change. Each held-out copy goes through the pipeline exactly
+    as BAR-ATH does in src/run.py. Saved as cross-vA-vB, comparable with `run` on the test bench."""
+    current = bench_games()
+    train, test = games_at(train_version, current), games_at(test_version, current)
+    dead_tag = dead_oof(train)
+    dead_table, dead_names = deadball.tables(train)
+    team_tables, _ = possession.build_tables(train, dead_tag)
+    rows = []
+    for held_out in sorted({deadball.clean_name(m) for m in train}):
+        names_in = [m.name for m in train if deadball.clean_name(m) != held_out]
+        dead_model = deadball.fit(dead_table, names_in)
+        team_model = possession.fit(team_tables, names_in)
+        for match in test:
+            if deadball.clean_name(match) != held_out:
+                continue
+            _, matrix = features.as_matrix(features.frame_features(match), dead_names)
+            p_dead = dead_model.predict_proba(matrix)[:, 1]
+            stoppages = deadball.decode(p_dead, match.period, possession.DEAD_PENALTY)
+            _, views = possession.both_views(match, stoppages)
+            p_home = possession.p_home(team_model, views)
+            labels = decode.decode(p_dead, p_home, match.period, decode.TEAM_COST,
+                                   decode.DEAD_COST, decode.MEMORY)
+            labels = np.where(match.period > 0, labels, X).astype(np.int8)
+            rows.append(dict(game_row(match, labels, p_home), dead_tag=dead_tag, home_tag="cross"))
+        print("  fold {} done".format(held_out), flush=True)
+    name = "cross-v{}-v{}".format(train_version, test_version)
+    save(name, pd.DataFrame(rows), "trained on v{}, scored on v{}".format(train_version,
+                                                                          test_version))
 
 
 # -- oracles ---------------------------------------------------------------------------------------
@@ -322,6 +406,10 @@ def compare(name_a, name_b):
                          "games won": "{}/{}".format(int((per_game > 0).sum()), len(per_game))})
     print("== spellF1, {} (A) vs {} (B)".format(name_a, name_b))
     print(pd.DataFrame(rows).to_string(index=False, float_format="%.4f"))
+    bands = by_smoothing(both)
+    if bands is not None:
+        print("== controlled spellF1 by ball smoothing, B - A")
+        print(bands.to_string(float_format="%.4f"))
     print("== diagnostics, A | B")
     side = pd.concat({name_a: summary(a), name_b: summary(b)}, axis=1)
     print(side.to_string(float_format="%.4f"))
@@ -335,6 +423,9 @@ if __name__ == "__main__":
     cmp_parser.add_argument("a")
     cmp_parser.add_argument("b")
     sub.add_parser("oracles", help="headroom: true D, true team, perfect switch timing")
+    cross_parser = sub.add_parser("crossbench", help="train on one noise version, score another")
+    cross_parser.add_argument("--train", type=int, required=True, metavar="VERSION")
+    cross_parser.add_argument("--test", type=int, required=True, metavar="VERSION")
     args = parser.parse_args()
     if args.command == "run":
         run(args.name)
@@ -342,3 +433,5 @@ if __name__ == "__main__":
         compare(args.a, args.b)
     elif args.command == "oracles":
         oracles()
+    elif args.command == "crossbench":
+        crossbench(args.train, args.test)
