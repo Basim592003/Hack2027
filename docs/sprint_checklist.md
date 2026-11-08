@@ -101,11 +101,14 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
 - [ ] **A5 `early_stopping=False`.** sklearn's default `'auto'` holds out a random 10% of rows, while the other team
   view of each held-out frame stays in training. Test the possession model first, since nothing upstream changes.
   Test the dead-ball model as a separate A/B, because it cascades into the team model's restart features.
-- [ ] **A6 Organiser question.** Draft one grey-area email for the user to send, covering:
+- [x] **A6 Organiser question.** Draft one grey-area email for the user to send, covering:
   - the noise-calibration items in CLAUDE.md;
   - v5's randomised ball smoothing (B2);
   - the lag estimator, if B1 finds a lag;
   - whether the public window may be inspected to see if hand-overs are stamped at the first touch or at control.
+  - Done 2026-11-08: the draft is in [organiser_question.md](organiser_question.md), and also asks about the Metrica
+    sample licence. **The user sends it.** Record the reply here; until then, B2 goes ahead with randomised settings,
+    and nobody reads the public window.
 
 ## B. Make the bench look like BAR-ATH's tracking (target: Mon 9 Nov)
 - [ ] **B1 Lag check.**
