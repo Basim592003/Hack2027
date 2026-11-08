@@ -98,9 +98,21 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
 
   - 83% / 88% of real in-play changes have an event within ±12 frames.
   - Team evidence is still the main headroom. On Metrica, a perfect dead ball is worth more than perfect timing.
-- [ ] **A5 `early_stopping=False`.** sklearn's default `'auto'` holds out a random 10% of rows, while the other team
+- [x] **A5 `early_stopping=False`.** sklearn's default `'auto'` holds out a random 10% of rows, while the other team
   view of each held-out frame stays in training. Test the possession model first, since nothing upstream changes.
   Test the dead-ball model as a separate A/B, because it cascades into the team model's restart features.
+  - Done 2026-11-08. Controlled spellF1, IDSSE / Metrica:
+    - possession model (`run a5-home`): +0.0008 / +0.0025, 7/14 and 4/6 copies won. **Kept**: noise-level, but it
+      passes the hygiene gate.
+    - dead-ball model on top (`run a5-dead`): −0.0023 / −0.0103, 0/6 Metrica copies won. **Dropped.** Its early
+      stopping evidently regularises, so `deadball.MODEL_PARAMS` keeps sklearn's default.
+  - **New baseline `a5`** (dead @24a8bea05d, home @aead934829): controlled 0.7254 / 0.7515, last touch
+    0.6813 / 0.7057.
+  - Submission regenerated: SHA-256 `8efbe025f1c2e05b18cdd620daa4f71ea88db4303417cab715ff7141ff321ebb`, valid.
+  - BAR-ATH aggregates, sanity only: 356 possessions of mean 10.0 s, 43.8% D across 118 stoppages, home 61.1% of
+    live frames.
+  - The previous file (22e4fd4c…) predates the push/retreat features. It is kept as
+    `data/cache/possession_v4_22e4fd4c.csv`.
 - [x] **A6 Organiser question.** Draft one grey-area email for the user to send, covering:
   - the noise-calibration items in CLAUDE.md;
   - v5's randomised ball smoothing (B2);

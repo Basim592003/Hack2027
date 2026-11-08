@@ -55,8 +55,10 @@ TEAM_PENALTIES = (0.0, 10.0, 20.0, 40.0, 80.0, 160.0, 320.0)
 WINDOWS = (("c1", 12, 12), ("c4", 50, 50), ("past1", 25, 0), ("past4", 100, 0),
            ("next1", 0, 25), ("next4", 0, 100))
 TRAIN_STRIDE = 5
+# early_stopping off: sklearn's default "auto" switches it on above 10k rows and holds out a random
+# 10% of them, whose near-duplicate neighbours -- and other team view -- stay in training.
 MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samples_leaf=200,
-                    l2_regularization=1.0, random_state=0)
+                    l2_regularization=1.0, early_stopping=False, random_state=0)
 TOUCHES = True           # the touch feature family; --no-touches turns it off for comparison
 TURNS = True             # change in each team's forward speed; --no-turns turns it off
 
