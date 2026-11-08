@@ -8,6 +8,8 @@ A clone of the organisers' starter repo for **More Than A Hack 2027, Phase 1** (
 
 Everything outside `src/` belongs to the organisers. Our pipeline lives in `src/`. The organiser docs (`CHALLENGE.md`, `DATA.md`, `EVALUATION.md`, `RULES.md`, `FAQ.md`, `SUBMISSION.md`) are authoritative. `evaluation/possession_metrics.py` is the metric specification, and where it disagrees with a doc, the code wins.
 
+**Current work, until the deadline: `docs/sprint_checklist.md`.** One item per sitting: do the first unticked item, write its result under it, commit, push to `origin`, and stop. `origin` is our repo (github.com/Basim592003/Hack2027); `upstream` is the organisers' repo, which we only pull from.
+
 ## Hard rules (competition terms + RULES.md)
 
 The organisers' clarification email (top of `RULES.md`, recorded 2026-11-03) **overrides everything else**, including older docs and FAQ answers. In short:
