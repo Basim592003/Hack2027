@@ -1,5 +1,40 @@
 # Rules
 
+## Clarification of the rules (organisers' email, recorded 2026-11-03)
+
+> These rules take precedence over any other information previously received, whether in the
+> documentation below, in earlier emails or in answers to individual questions.
+
+### What is not allowed
+
+- Checking your output against the video.
+- Hand labels, human-produced data or any other data created manually on the provided game.
+- Uploading the provided data to AI services.
+- Training, fitting or calibrating your algorithm on the ground-truth possession data or on the
+  provided video.
+
+### What is allowed
+
+- Running automatic checks using only the provided data.
+- Inspecting the provided data and the video to better understand what counts as possession.
+- Using as input the video, the automatic tracking data, the smart tagging or any other generated
+  data, as long as your algorithm was not trained on the ground truth or on the provided video.
+- Providing files of intermediate steps.
+- Using any dataset you have the rights to use. Please check the licence of any dataset before
+  using it.
+
+### Training and tuning
+
+If you need to train (or retrain), you **must** use only external data. If your algorithm has
+parameters that need to be tuned, you **must** tune them on external data, never on the
+ground-truth possession data or on the provided video.
+
+---
+
+*The original rules follow. Where they disagree with the clarification above, the clarification
+wins. In particular, the original allowance for self-supervised learning and pseudo-labels on the
+provided game is overridden by "if you need to train, you must use only external data".*
+
 ## What you may use
 
 **Any method at all**, subject to two conditions:

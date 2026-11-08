@@ -1,0 +1,7 @@
+# The possession pipeline in src/ (python -m src.run). Pinned: the submission is regenerated
+# byte for byte, and a different library version could move a split in a tree.
+# Built and checked under Python 3.9.6.
+numpy==2.0.2
+pandas==2.3.3
+scikit-learn==1.6.1
+scipy==1.13.1
