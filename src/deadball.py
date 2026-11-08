@@ -45,6 +45,16 @@ def clean_name(match):
     return match.name.split("~")[0]
 
 
+def oof_path(name, tag=None):
+    """Where a game's out-of-fold P(dead) is cached. Untagged files are the ones src.run and the
+    command lines here write; src/experiment.py tags its files with a hash of what made them, so a
+    changed model never reads another version's predictions."""
+    base = controlled.base_name(name)
+    if tag is None:
+        return os.path.join(CACHE_DIR, "pdead_oof_{}.npy".format(base))
+    return os.path.join(CACHE_DIR, "oof", "pdead_{}@{}.npy".format(base, tag))
+
+
 # -- decoding ----------------------------------------------------------------------------------
 
 def viterbi2(logodds, penalty):
@@ -155,7 +165,7 @@ def fit(table, names_in):
     return make_model().fit(x, y)
 
 
-def out_of_fold(games, table):
+def out_of_fold(games, table, tag=None):
     """P(dead) for every game from a model that never saw that game, at any noise level."""
     groups = sorted({clean_name(m) for m in games})
     p_dead = {}
@@ -165,9 +175,9 @@ def out_of_fold(games, table):
         for match in games:
             if clean_name(match) == held_out:
                 p_dead[match.name] = model.predict_proba(table[match.name][0])[:, 1]
-                np.save(os.path.join(CACHE_DIR, "pdead_oof_{}.npy".format(
-                    controlled.base_name(match.name))),
-                        p_dead[match.name].astype(np.float32))
+                path = oof_path(match.name, tag)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                np.save(path, p_dead[match.name].astype(np.float32))
         print("  fold {:<14} trained on {} games".format(held_out, len(train)), flush=True)
     return p_dead
 

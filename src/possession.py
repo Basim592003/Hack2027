@@ -267,6 +267,13 @@ def predicted_dead(match, p_dead_path):
     return deadball.decode(np.load(p_dead_path), match.period, DEAD_PENALTY)
 
 
+def oof_path(name, tag=None):
+    """Where a game's out-of-fold P(home) is cached; tagged like deadball.oof_path."""
+    if tag is None:
+        return os.path.join(CACHE_DIR, "phome_oof_{}.npy".format(name))
+    return os.path.join(CACHE_DIR, "oof", "phome_{}@{}.npy".format(name, tag))
+
+
 # -- training and decoding ---------------------------------------------------------------------
 
 def training_rows(tables, names_in):
@@ -320,17 +327,16 @@ def score_game(match, p, dead, penalty):
             "n_gt": result["n_gt_spells"]}
 
 
-def build_tables(games):
+def build_tables(games, dead_tag=None):
     tables, names = {}, None
     for match in games:
-        dead = predicted_dead(match, os.path.join(CACHE_DIR, "pdead_oof_{}.npy".format(
-            controlled.base_name(match.name))))
+        dead = predicted_dead(match, deadball.oof_path(match.name, dead_tag))
         names, views = both_views(match, dead)
         tables[match.name] = (views, match.labels, dead)
     return tables, names
 
 
-def cross_validate(games, tables):
+def cross_validate(games, tables, tag=None):
     groups = sorted({deadball.clean_name(m) for m in games})
     p = {}
     for held_out in groups:
@@ -338,8 +344,9 @@ def cross_validate(games, tables):
         for match in games:
             if deadball.clean_name(match) == held_out:
                 p[match.name] = p_home(model, tables[match.name][0])
-                np.save(os.path.join(CACHE_DIR, "phome_oof_{}.npy".format(match.name)),
-                        p[match.name].astype(np.float32))
+                path = oof_path(match.name, tag)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                np.save(path, p[match.name].astype(np.float32))
         print("  fold {:<14} done".format(held_out), flush=True)
     return p
 

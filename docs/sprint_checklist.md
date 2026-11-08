@@ -50,7 +50,7 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
     - The scratch diagnostics that later items port now live in `src/diag/`, because `/private/tmp` is cleared on
       reboot: `oracles.py`, `old_vs_new.py`, `miss_causes.py`, `bench_gaps_candidates.py`. They read the external bench
       only. Run them from the repo root with `PYTHONPATH=.`.
-- [ ] **A2 Harness: score both conventions.**
+- [x] **A2 Harness: score both conventions.**
   - New `src/experiment.py` with `score_both(match, labels)`. It scores against `match.labels` and, in memory,
     against `controlled.controlled_labels(match.labels)`, so it needs no `~ctl` games or files.
   - Tag every out-of-fold cache with a short hash of whatever produced it: the upstream tag, flags, `MODEL_PARAMS`
@@ -58,7 +58,11 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
     the last fold, and skip a step whose manifest exists. Today's caches are keyed by name only, so a feature or
     model change silently reuses stale files. Untagged names stay as they are, so `src.run` is unchanged.
   - Check: reproduce 0.680 / 0.704 last touch, and record the controlled baseline.
-- [ ] **A3 Harness: compare.** `python -m src.experiment compare <a> <b>` prints, per source and per label set:
+  - Done 2026-11-08 (`experiment run base`, dead @24a8bea05d, home @adead22ea8; IDSSE / Metrica):
+    - last-touch spellF1 0.6800 / 0.7043, reproduced exactly;
+    - **controlled spellF1 0.7246 / 0.7490**, macroF1 0.922 / 0.898;
+    - predicted possessions 337 / 305, against 365 / 320 real under controlled labels and 437 / 381 under last touch.
+- [x] **A3 Harness: compare.** `python -m src.experiment compare <a> <b>` prints, per source and per label set:
   - the two means and their paired difference (mean, min, max);
   - copies won (of 14 IDSSE / 6 Metrica) and clean games won (of 7 / 3);
   - predicted vs real possessions, and macroF1;
@@ -66,13 +70,34 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
   - the median offset of matched in-play changes.
 
   Check: base vs base gives zero difference.
-- [ ] **A4 Oracles under controlled labels.**
+  - Done 2026-11-08: `run base2` reused both caches (3 s against about 10 min cold), and `compare base base2` shows
+    zero difference everywhere.
+  - Baseline diagnostics, controlled labels, IDSSE / Metrica:
+    - in-play turnovers recovered: 66.5% / 70.9%;
+    - P(true team) in in-play spells under 2 s: 0.53 / 0.53;
+    - median offset of answered changes: −0.8 / 0 frames;
+    - share of all real changes answered within 8 frames: 46% / 51%.
+  - So the matched changes are on time at the median. The loss is the half that is never answered within 8 frames.
+- [x] **A4 Oracles under controlled labels.**
   - Add `decode.viterbi4_costs(e_home, e_away, e_dead, team_costs, dead)`, with a per-frame team cost and the same
     candidate order and tie-breaking as `viterbi4`. Assert identical labels to `viterbi4` at a constant cost on all
     20 copies. (The scratch `viterbi4_varying` in `src/diag/oracles.py` calls `np.argmax` per frame and is several
     times slower.)
   - `experiment oracles` runs four cases: true D, true team, perfect switch timing, and perfect timing limited to
     turnovers with an event within ±12 frames (the ceiling for C2). Record the controlled headroom.
+  - Done 2026-11-08. `viterbi4_costs` equals `viterbi4` on 20/20 copies and runs slightly faster (about 0.09 s a
+    game). Controlled spellF1, IDSSE / Metrica:
+
+    | case | spellF1 | gain |
+    |---|---|---|
+    | as predicted | 0.7246 / 0.7490 | — |
+    | true D | 0.7521 / 0.8148 | +0.028 / +0.066 |
+    | true team | 0.9588 / 0.9286 | +0.234 / +0.180 |
+    | perfect switch timing | 0.7616 / 0.7807 | +0.037 / +0.032 |
+    | perfect timing, only at events (C2 ceiling) | 0.7587 / 0.7745 | +0.034 / +0.026 |
+
+  - 83% / 88% of real in-play changes have an event within ±12 frames.
+  - Team evidence is still the main headroom. On Metrica, a perfect dead ball is worth more than perfect timing.
 - [ ] **A5 `early_stopping=False`.** sklearn's default `'auto'` holds out a random 10% of rows, while the other team
   view of each held-out frame stays in training. Test the possession model first, since nothing upstream changes.
   Test the dead-ball model as a separate A/B, because it cascades into the team model's restart features.

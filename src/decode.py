@@ -50,7 +50,7 @@ import pandas as pd
 from . import controlled
 from .bench import bench_games, source_of
 from .features import SHORT_BALL_GAP, ball_geometry, fill_short_gaps, lagged_speed
-from .match import A, CACHE_DIR, D, H, X
+from .match import A, D, H, X
 from .possession import nearest_by_team
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -112,16 +112,64 @@ def viterbi4(e_home, e_away, e_dead, team, dead, keep, switch):
     return np.array([H, A, D, D], dtype=np.int8)[path]
 
 
-def decode(p_dead, p_home, period, team, dead, memory):
-    """Label codes for a whole match, decoded within each half; X outside the halves."""
+def viterbi4_costs(e_home, e_away, e_dead, team_costs, dead):
+    """viterbi4 without restart memory, with a team-switch cost per frame: team_costs[t] is charged
+    for changing team between frames t - 1 and t. Same candidate order and tie-breaking as
+    viterbi4, so a constant cost gives exactly its path. Back-pointers go into lists, because
+    numpy row writes dominate a loop like this."""
+    back_h, back_a, back_dh, back_da = [], [], [], []
+    h = a = dh = da = 0.0
+    for eh, ea, ed, team in zip(e_home.tolist(), e_away.tolist(), e_dead.tolist(),
+                                team_costs.tolist()):
+        best_h, from_h = h, 0
+        if a - team > best_h:
+            best_h, from_h = a - team, 1
+        if dh - dead > best_h:
+            best_h, from_h = dh - dead, 2
+        if da - dead > best_h:
+            best_h, from_h = da - dead, 3
+        best_a, from_a = a, 1
+        if h - team > best_a:
+            best_a, from_a = h - team, 0
+        if da - dead > best_a:
+            best_a, from_a = da - dead, 3
+        if dh - dead > best_a:
+            best_a, from_a = dh - dead, 2
+        best_dh, from_dh = (dh, 2) if dh >= h - dead else (h - dead, 0)
+        best_da, from_da = (da, 3) if da >= a - dead else (a - dead, 1)
+        back_h.append(from_h)
+        back_a.append(from_a)
+        back_dh.append(from_dh)
+        back_da.append(from_da)
+        h, a, dh, da = best_h + eh, best_a + ea, best_dh + ed, best_da + ed
+    state = int(np.argmax([h, a, dh, da]))
+    back = (back_h, back_a, back_dh, back_da)
+    path = np.empty(len(back_h), dtype=np.int8)
+    for t in range(len(back_h) - 1, -1, -1):
+        path[t] = state
+        state = back[state][t]
+    return np.array([H, A, D, D], dtype=np.int8)[path]
+
+
+def decode(p_dead, p_home, period, team, dead, memory, team_costs=None):
+    """Label codes for a whole match, decoded within each half; X outside the halves.
+
+    team_costs, a per-frame team-switch cost, replaces the constant team cost when given
+    (viterbi4_costs, which has no restart memory)."""
+    if team_costs is not None and memory:
+        raise ValueError("per-frame team costs are decoded without restart memory")
     keep, switch = (-np.log(1 - SWITCH_RATE), -np.log(SWITCH_RATE)) if memory else (0.0, 0.0)
     e_home, e_away, e_dead = log_emissions(p_dead, p_home)
     labels = np.full(len(p_dead), X, dtype=np.int8)
     for half in np.unique(period[period > 0]):
         frames = np.flatnonzero(period == half)
         span = slice(frames[0], frames[-1] + 1)
-        labels[span] = viterbi4(e_home[span], e_away[span], e_dead[span], team, dead, keep,
-                                switch)
+        if team_costs is None:
+            labels[span] = viterbi4(e_home[span], e_away[span], e_dead[span], team, dead, keep,
+                                    switch)
+        else:
+            labels[span] = viterbi4_costs(e_home[span], e_away[span], e_dead[span],
+                                          np.asarray(team_costs, dtype=np.float64)[span], dead)
     return labels
 
 
@@ -186,13 +234,14 @@ def snap(labels, ctx, period, team_changes=True, dead_edges=True):
 
 # -- bench -------------------------------------------------------------------------------------
 
-def oof(match, team_from=None):
+def oof(match, team_from=None, dead_tag=None, home_tag=None):
     """Out-of-fold P(dead) and P(home). team_from names the game whose team-model predictions to
     use -- by default this one; pass a game's other-convention name to score a team model trained
-    on one possession definition against labels in another."""
-    p_dead = np.load(os.path.join(CACHE_DIR, "pdead_oof_{}.npy".format(
-        controlled.base_name(match.name))))
-    p_home = np.load(os.path.join(CACHE_DIR, "phome_oof_{}.npy".format(team_from or match.name)))
+    on one possession definition against labels in another. The tags pick src/experiment.py's
+    caches instead of the untagged ones."""
+    from . import deadball, possession
+    p_dead = np.load(deadball.oof_path(match.name, dead_tag))
+    p_home = np.load(possession.oof_path(team_from or match.name, home_tag))
     return p_dead, p_home
 
 
