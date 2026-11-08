@@ -123,12 +123,20 @@ Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either sourc
     and nobody reads the public window.
 
 ## B. Make the bench look like BAR-ATH's tracking (target: Mon 9 Nov)
-- [ ] **B1 Lag check.**
+- [x] **B1 Lag check.**
   - New `src/lagcheck.py`, aggregates only. Take stretches where the same slot stays within 1.5 m of the ball for at
     least 25 frames while moving ≥ 3 m/s. Cross-correlate ball and player velocity at lags −12…+12.
   - Print the median peak lag for the clean games, v4, and BAR-ATH.
   - If BAR-ATH lags by more than 2 frames, add item B1b: `align_ball(match)`, a per-match estimate plus shift applied
     after loading in `bench.bench_games` and `run.predict_bar`. It is the same algorithm on every match.
+  - Done 2026-11-08. Peak lag in frames (negative: the ball leads), with agreement at the peak:
+    - clean IDSSE: −3.1, 0.91;
+    - BAR-ATH: −2.5, 0.91 (8.8k close-control frames);
+    - clean Metrica: +1.5, 0.90;
+    - the v4 bench matches its clean games.
+  - In a dribble the ball moves first and the player follows, so real tracking leads by about 3 frames. BAR-ATH is
+    within 0.6 frames of IDSSE, so there is no causal ball filter to undo and **no B1b**. Metrica's sample ball trails
+    its carrier, as expected for a ball that sits on the carrier.
 - [ ] **B2 Noise v5** in `src/noise.py`.
   - **Seeding.** Give each copy its own random streams:
     `np.random.SeedSequence([seed, zlib.crc32(clean_name.encode()), round(1000 * alive_missing)]).spawn(5)`, one each
