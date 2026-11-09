@@ -75,6 +75,8 @@ SEGMENTS = True          # the segment family (sprint items C3-C5)
 FLIGHT = False           # the flight family (sprint item D1: below the keep gate, off)
 PRESSURE = False         # the pressure family (sprint item D2: below the keep gate, off)
 MONOTONIC = False        # constrain the features below to push one way only (sprint item E1: lost, off)
+DENSE = True             # train on every live frame within DENSE_WINDOW of a change of team (E2)
+DENSE_WINDOW = 12        # frames
 # Feature-name prefixes whose larger values can only make "this view's team has the ball" more (+1)
 # or less (-1) likely. The contrasts between segments and last_nearest, next_nearest and kick_prev
 # (whose sign depends on what happened in between) stay free.
@@ -362,11 +364,17 @@ def oof_path(name, tag=None):
 # -- training and decoding ---------------------------------------------------------------------
 
 def training_rows(tables, names_in):
-    """Both points of view of every TRAIN_STRIDE-th live frame. y = 'this view's team has it'."""
+    """Both points of view of every TRAIN_STRIDE-th live frame, and with DENSE of every live frame
+    within DENSE_WINDOW of a change of team. y = 'this view's team has it'."""
     xs, ys = [], []
     for name in names_in:
         views, labels, _ = tables[name]
-        keep = np.flatnonzero((labels == H) | (labels == A))[::TRAIN_STRIDE]
+        live = (labels == H) | (labels == A)
+        keep = np.flatnonzero(live)[::TRAIN_STRIDE]
+        if DENSE:
+            changes = np.flatnonzero(live[1:] & live[:-1] & (labels[1:] != labels[:-1])) + 1
+            near = segments.within(changes, np.arange(len(labels)), DENSE_WINDOW) & live
+            keep = np.union1d(keep, np.flatnonzero(near))
         for me, team_label in ((0, H), (1, A)):
             xs.append(views[me][keep])
             ys.append(labels[keep] == team_label)

@@ -82,6 +82,7 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 .venv/bin/python -m src.experiment oracles        # headroom: true D, true team, perfect switch timing (also at events only)
 .venv/bin/python -m src.experiment eventgrid      # switch cost cheap near events vs constant (C2: dropped, ~30 s)
 .venv/bin/python -m src.experiment boundarygrid   # learned switch cost, src/boundary.py, vs constant (C6: dropped, ~1 min)
+.venv/bin/python -m src.experiment costgrid NAME  # constant team / dead costs on a saved run's predictions (~3 min); re-pick after any P(home) change
 # The OOF tags hash the source of features.py, touches.py, deadball.py, possession.py and (P(home) only) segments.py:
 # any edit to them, even a docstring, recomputes the OOF steps (~10 min) on the next run. Batch such edits first.
 ```
@@ -158,7 +159,7 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
    - a team-shape model for frames without a ball, **trained on the external games only** (the 2026-11-03 email rules out pseudo-labels on BAR-ATH);
    - restart-team evidence (see the findings below);
    - Smart Tagging phase priors, used as soft evidence only.
-4. Joint decoder. **Done** (`src/decode.py`). One Viterbi pass over {H, A, D after H, D after A} with team cost 6 and dead cost 40; restart memory and boundary snapping are off. It matches steps 2+3 run in sequence, and both variants were tested and dropped (results below). Per-frame switch costs were also dropped in sprint items C2 and C6 (2026-11-08/09). A cost cut near events and a cost learned from a change detector (AUC 0.88 / 0.94) both lose or tie. Gains have to come from P(home).
+4. Joint decoder. **Done** (`src/decode.py`). One Viterbi pass over {H, A, D after H, D after A} with team cost 10 and dead cost 40; restart memory and boundary snapping are off. The team cost was 6 until 2026-11-09. Sprint item E2 (`possession.DENSE`: also train on every live frame within ±12 frames of a change of team) sharpened P(home) at hand-overs and moved the plateau to 10–12, found with `experiment costgrid`. It matches steps 2+3 run in sequence, and both variants were tested and dropped (results below). Per-frame switch costs were also dropped in sprint items C2 and C6 (2026-11-08/09). A cost cut near events and a cost learned from a change detector (AUC 0.88 / 0.94) both lose or tie. Gains have to come from P(home).
 5. Final run. **Done**: `src/run.py`, `requirements-pipeline.txt` (pinned, Python 3.9.6), and the draft `docs/technical_document.md`.
    - The output passes `validate_submission.py`.
    - A rebuild from an empty `data/cache/` was byte-identical (SHA-256 `e5a8c7b9…19264`; after step 6, `f4c9fc60…f422`).

@@ -9,6 +9,7 @@ whatever the code and flags are when it runs:
     python -m src.experiment crossbench --train 4 --test 5   # trained on one noise version, scored on another
     python -m src.experiment eventgrid       # team cost cheap near events (decode.event_costs) vs constant
     python -m src.experiment boundarygrid    # learned team cost (src/boundary.py) vs constant
+    python -m src.experiment costgrid NAME   # constant team / dead costs on a saved run's predictions
 
 Scoring. BAR-ATH's answer key counts *controlled* possession (CHALLENGE.md), and the external labels give
 it to the last toucher, so every decode is scored against both: the labels as they are ("lt") and
@@ -99,7 +100,8 @@ def home_oof(games, dead_tag):
                     stride=possession.TRAIN_STRIDE, touches=possession.TOUCHES,
                     turns=possession.TURNS, segments=possession.SEGMENTS,
                     flight=possession.FLIGHT, pressure=possession.PRESSURE,
-                    monotonic=possession.MONOTONIC)
+                    monotonic=possession.MONOTONIC, dense=possession.DENSE,
+                    dense_window=possession.DENSE_WINDOW)
     tag = signature((features, touches, deadball, possession, segments, flight, pressure),
                     **settings)
     paths = [possession.oof_path(m.name, tag) for m in games]
@@ -430,6 +432,34 @@ def grid_report(table, keys, is_base, name, header, extra=()):
     return table
 
 
+# -- decoder costs ---------------------------------------------------------------------------------
+
+TEAM_COST_GRID = (4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0)
+DEAD_COST_GRID = (20.0, 40.0, 60.0)
+
+
+def cost_grid(name, games=None):
+    """The joint decoder's constant team and dead costs on a saved run's out-of-fold predictions,
+    each cell against decode.TEAM_COST / DEAD_COST. Saved as costgrid-NAME.csv."""
+    saved = load(name)
+    dead_tag, home_tag = saved.dead_tag.iloc[0], saved.home_tag.iloc[0]
+    games = games if games is not None else bench_games()
+    rows = []
+    for match in games:
+        p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
+        for team, dead in itertools.product(TEAM_COST_GRID, DEAD_COST_GRID):
+            labels = decode.decode(p_dead, p_home, match.period, team, dead, decode.MEMORY)
+            labels = np.where(match.period > 0, labels, X).astype(np.int8)
+            rows.append(dict(source=source_of(match.name), copy=match.name, team=team, dead=dead,
+                             **score_both(match, labels)))
+        print("  {}".format(match.name), flush=True)
+    table = pd.DataFrame(rows)
+    base = (table.team == decode.TEAM_COST) & (table.dead == decode.DEAD_COST)
+    return grid_report(table, ["team", "dead"], base, "costgrid-" + name,
+                       "decoder costs on {} (dead @{}, home @{}) vs team {} / dead {}".format(
+                           name, dead_tag, home_tag, decode.TEAM_COST, decode.DEAD_COST))
+
+
 # -- learned switch cost ---------------------------------------------------------------------------
 
 BOUNDARY_GRID = dict(beta=(0.5, 1.0, 2.0), neutral=(0.02, 0.05, 0.1, 0.2))
@@ -548,6 +578,7 @@ if __name__ == "__main__":
     cross_parser.add_argument("--test", type=int, required=True, metavar="VERSION")
     sub.add_parser("eventgrid", help="event-gated team cost grid against the constant cost")
     sub.add_parser("boundarygrid", help="learned team cost grid against the constant cost")
+    sub.add_parser("costgrid", help="decoder team / dead cost grid on a saved run").add_argument("name")
     args = parser.parse_args()
     if args.command == "run":
         run(args.name)
@@ -561,3 +592,5 @@ if __name__ == "__main__":
         event_grid()
     elif args.command == "boundarygrid":
         boundary_grid()
+    elif args.command == "costgrid":
+        cost_grid(args.name)

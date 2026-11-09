@@ -455,8 +455,33 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     touch −0.0052 / −0.0110. This is past the hygiene limit (−0.002), so it is **dropped: `MONOTONIC = False`**, which
     gives back the C5 model exactly. The intuitive directions do not hold once features interact: the next kick's
     team, for one, means something else right after a turnover.
-- [ ] **E2 Denser sampling.** In `training_rows`, take every frame within ±12 frames of an in-play change, and every
+- [x] **E2 Denser sampling.** In `training_rows`, take every frame within ±12 frames of an in-play change, and every
   5th frame elsewhere.
+  - Done 2026-11-09. `possession.DENSE` adds every live frame within ±12 frames of a change of team in the training
+    labels to the every-5th rows: 17.0k → 22.3k rows a copy.
+  - At the old team cost 6 (`run e2` against `v6`): **+0.0051 / −0.0029, copies 7/14 and 3/6**, so it fails on
+    copies won. But it does what it was for:
+    - P(true team) in short in-play spells: 0.458 → 0.504 / 0.442 → 0.501, the first real move on that number;
+    - changes answered within 8 frames: 0.296 → 0.364 / 0.391 → 0.457;
+    - predicted possessions: 316 → 332 / 286 → 300, too many of them wrong at cost 6.
+  - A sharper P(home) needs a higher switch cost, so I re-picked each model's own cost, as E4 and F1 prescribe. The
+    new `experiment costgrid NAME` covers team {4…20} × dead {20, 40, 60}:
+    - v6 is flat over team 6–12 (IDSSE 0.671–0.672, Metrica 0.754–0.755);
+    - E2's plateau is 10–12 (0.677–0.678 / 0.761); IDSSE falls at 16;
+    - E2 at team 10 beats v6 at each of v6's plateau costs (6, 8, 10, 12): +0.005 to +0.007 on IDSSE (8–10/14
+      copies), +0.006 to +0.007 on Metrica (4–5/6), last touch +0.005 to +0.011.
+  - **Kept: `DENSE = True`, and `decode.TEAM_COST` 6 → 10** (the middle of E2's plateau, with close neighbours).
+    `run e2-t10` against `v6`: **+0.0065 / +0.0069**, copies 10/14 and 4/6, games 5/7 and 3/3; last touch +0.0052 /
+    +0.0071; by smoothing +0.011 / +0.006 / +0.002.
+  - Caveat: this is a combined change chosen after the first result, with the cost picked on the same bench. What
+    makes it more than a lucky cell is that it passes the gate in every pairing.
+  - **New baseline `e2-t10`** (dead @33252c085a, home @6f6826cb7e): controlled 0.6773 / 0.7607, last touch
+    0.6214 / 0.6957.
+  - Submission regenerated twice, with identical SHA-256
+    `2cdb37ae5cb51e0052a5621fc8c402e112c33b15a51775008f7873b502b32dcb`, valid. The D3 file is kept as
+    `data/cache/possession_v6_ac721327.csv`.
+  - BAR-ATH aggregates, sanity only: 324 possessions of mean 11.0 s (D3: 323), 44.0% D across 106 stoppages, home
+    60.5%. The higher switch cost did not thin BAR-ATH's possessions.
 - [ ] **E3 Extra seed for training only** (`bench.TRAIN_SEEDS = (0, 1)`); evaluate on seed 0 only. Keep full feature
   tables for seed 0 only, or memory reaches about 6 GB. Keep it if it gains ≥ 0.003, since it doubles run time.
 - [ ] **E4 Classifier grid**, about 4 configurations per sitting and at most 6 in all: learning rate, leaves,

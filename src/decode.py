@@ -37,6 +37,11 @@ So the remaining errors are in the evidence, not the decoding: real possessions 
 
 Re-checked 2026-11-06 with the touch features (src/touches.py) on noise v3: team costs 4-10 are
 still a plateau (0.673-0.682 IDSSE, 0.718-0.723 Metrica), so team 6, dead 40 stay.
+
+Re-picked 2026-11-09 (sprint item E2, experiment costgrid). Training the team model densely around
+changes makes P(home) sharper at hand-overs, and its plateau moves to team 10-12 (controlled
+spellF1 0.677-0.678 IDSSE, 0.761 Metrica; IDSSE falls to 0.672 at 16). Team 10 is chosen, the
+middle of it, with dead 40.
 """
 
 import argparse
@@ -67,7 +72,7 @@ DEAD_COSTS = (10.0, 20.0, 40.0)
 SWITCH_RATE = 0.7         # share of stoppages that hand the ball over, external games
 
 # The settings the submission uses, chosen on the external bench (see the docstring).
-TEAM_COST, DEAD_COST, MEMORY, SNAP = 6.0, 40.0, False, False
+TEAM_COST, DEAD_COST, MEMORY, SNAP = 10.0, 40.0, False, False
 
 
 def log_emissions(p_dead, p_home):
