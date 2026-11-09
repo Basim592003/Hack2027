@@ -151,6 +151,12 @@ def viterbi4_costs(e_home, e_away, e_dead, team_costs, dead):
     return np.array([H, A, D, D], dtype=np.int8)[path]
 
 
+def event_costs(frames, n, low, high, k):
+    """Per-frame team cost: `low` within k frames of an event (src/segments.py), `high` elsewhere."""
+    from .segments import within
+    return np.where(within(frames, np.arange(n), k), low, high)
+
+
 def decode(p_dead, p_home, period, team, dead, memory, team_costs=None):
     """Label codes for a whole match, decoded within each half; X outside the halves.
 

@@ -7,6 +7,7 @@ whatever the code and flags are when it runs:
     python -m src.experiment compare A B     # two saved runs side by side, per source
     python -m src.experiment oracles         # headroom: true D, true team, perfect switch timing
     python -m src.experiment crossbench --train 4 --test 5   # trained on one noise version, scored on another
+    python -m src.experiment eventgrid       # team cost cheap near events (decode.event_costs) vs constant
 
 Scoring. BAR-ATH's answer key counts *controlled* possession (CHALLENGE.md), and the external labels give
 it to the last toucher, so every decode is scored against both: the labels as they are ("lt") and
@@ -25,6 +26,7 @@ External games only; nothing here touches BAR-ATH.
 import argparse
 import hashlib
 import inspect
+import itertools
 import json
 import os
 import sys
@@ -369,6 +371,52 @@ def oracles(games=None):
     return table
 
 
+# -- event-gated switch cost -----------------------------------------------------------------------
+
+EVENT_GRID = dict(low=(2.0, 4.0, 6.0), high=(6.0, 10.0, 20.0), k=(6, 12))
+
+
+def event_grid(games=None):
+    """Every event-gated team cost in EVENT_GRID (decode.event_costs) against the constant
+    decode.TEAM_COST, from the current out-of-fold predictions; the cell low = high = TEAM_COST is
+    that constant (viterbi4_costs reproduces viterbi4 there). Saved as eventgrid.csv."""
+    games = games if games is not None else bench_games()
+    dead_tag = dead_oof(games)
+    home_tag = home_oof(games, dead_tag)
+    rows = []
+    for match in games:
+        p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
+        stoppages = deadball.decode(p_dead, match.period, possession.DEAD_PENALTY)
+        frames, _, _ = segments.match_events(match, stoppages)
+        for low, high, k in itertools.product(*EVENT_GRID.values()):
+            costs = decode.event_costs(frames, len(p_dead), low, high, k)
+            labels = decode.decode(p_dead, p_home, match.period, decode.TEAM_COST,
+                                   decode.DEAD_COST, False, team_costs=costs)
+            labels = np.where(match.period > 0, labels, X).astype(np.int8)
+            rows.append(dict(source=source_of(match.name), copy=match.name, low=low, high=high,
+                             k=k, **score_both(match, labels)))
+        print("  {}".format(match.name), flush=True)
+    table = pd.DataFrame(rows)
+    base = table[(table.low == decode.TEAM_COST) & (table.high == decode.TEAM_COST)
+                 & (table.k == EVENT_GRID["k"][0])]
+    table = table.merge(base[["copy", "spellF1_ctl", "spellF1_lt"]], on="copy",
+                        suffixes=("", "_const"))
+    table["diff_ctl"] = table.spellF1_ctl - table.spellF1_ctl_const
+    table["diff_lt"] = table.spellF1_lt - table.spellF1_lt_const
+    save_table = table.drop(columns=["spellF1_ctl_const", "spellF1_lt_const"])
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    save_table.to_csv(os.path.join(RESULTS_DIR, "eventgrid.csv"), index=False)
+    summary_table = table.groupby(["source", "low", "high", "k"]).agg(
+        ctl=("spellF1_ctl", "mean"), diff_ctl=("diff_ctl", "mean"),
+        won=("diff_ctl", lambda d: "{}/{}".format(int((d > 0).sum()), len(d))),
+        diff_lt=("diff_lt", "mean"), n_pred=("n_pred_ctl", "mean"))
+    print("== event-gated team cost vs constant {} (dead @{}, home @{}); n_gt_ctl {}".format(
+        decode.TEAM_COST, dead_tag, home_tag,
+        table.groupby("source").n_gt_ctl.mean().round(1).to_dict()))
+    print(summary_table.unstack("source").to_string(float_format="%.4f"))
+    return table
+
+
 def compare(name_a, name_b):
     """B against A, per source and label set: means, paired differences, copies and games won."""
     a, b = load(name_a), load(name_b)
@@ -408,6 +456,7 @@ if __name__ == "__main__":
     cross_parser = sub.add_parser("crossbench", help="train on one noise version, score another")
     cross_parser.add_argument("--train", type=int, required=True, metavar="VERSION")
     cross_parser.add_argument("--test", type=int, required=True, metavar="VERSION")
+    sub.add_parser("eventgrid", help="event-gated team cost grid against the constant cost")
     args = parser.parse_args()
     if args.command == "run":
         run(args.name)
@@ -417,3 +466,5 @@ if __name__ == "__main__":
         oracles()
     elif args.command == "crossbench":
         crossbench(args.train, args.test)
+    elif args.command == "eventgrid":
+        event_grid()

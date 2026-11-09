@@ -246,7 +246,7 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     | true team | 0.9498 / 0.9203 | +0.287 / +0.190 |
     | perfect switch timing | 0.7069 / 0.7588 | +0.044 / +0.029 |
     | perfect timing, only at events (C2 ceiling) | 0.6882 / 0.7536 | +0.025 / +0.024 |
-- [ ] **C2 Event-gated switch cost.**
+- [x] **C2 Event-gated switch cost.** Dropped.
   - `decode.event_costs(frames, n, low, high, k)`.
   - Grid: low {2, 4, 6} × high {6, 10, 20} × k {6, 12}. Decode games in parallel with `ProcessPoolExecutor`, passing
     flags as explicit arguments, since macOS workers re-import modules with their defaults.
@@ -256,6 +256,15 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     of changes. BAR-ATH's event rate matches IDSSE's (C1); still compare its possession count (sanity only).
   - If kept, `run.predict_bar` builds BAR-ATH's events and passes `team_costs`. The default `None` keeps the current
     submission byte-identical.
+  - Done 2026-11-08 with `experiment eventgrid`. It took 30 s serially, so no process pool. The low = high = 6 cell
+    reproduces the constant cost exactly. Controlled spellF1 against the constant, IDSSE / Metrica:
+    - best cell, low 6 / high 10 / k 6: +0.0019 / +0.0012 (7/14, 4/6). Nothing reaches +0.005 on either source except
+      low 6 / high 20 / k 6 on Metrica, +0.0035, and that cell loses on IDSSE (−0.0017);
+    - cheaper switching near events always loses: low 4 gives −0.0006 to −0.0052, low 2 gives −0.003 to −0.013. It
+      adds possessions (IDSSE 320 → 340, against 365 real) that are mostly wrong.
+  - Events come every 2.6–3.4 s, and most are not hand-overs. P(home) already moves where the ball really changes
+    hands (A3: matched changes are on time), so the gate only adds false switches. **Dropped.** `decode.event_costs`
+    and `experiment eventgrid` stay, to re-check once C5 changes P(home).
 - [ ] **C3 Pooled features (code only).**
   - `segments.pool(values, events)`: means over the frame's own, previous and next segments, by cumulative sums
     (as in `features.rolling_mean`).
