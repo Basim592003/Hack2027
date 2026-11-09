@@ -290,11 +290,37 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
       `labels=None`.
     - The own-segment means are NaN on 32–43% of frames, because ball gaps are events, so a missing-ball stretch is
       its own segment. The neighbouring means are NaN on only 16–22%.
-- [ ] **C4 Ceiling run** (diagnostic, never shipped). Pass the true controlled turnover frames as
+- [x] **C4 Ceiling run** (diagnostic, never shipped). Pass the true controlled turnover frames as
   `build_tables(games, extra_events=...)`. If the gain is < 0.02, drop C5.
-- [ ] **C5 Pooled features, real run**, plus an ablation without kick events. Apply the gate. Compare segment-length
+  - Skipped 2026-11-08, because it cannot fail. Events at the true turnovers also tell the model *where* possession
+    changes, and that alone is worth +0.044 / +0.029 (C1's perfect-timing oracle). So the run would clear 0.02
+    whatever pooling is worth. C5 measures pooling directly.
+- [x] **C5 Pooled features, real run**, plus an ablation without kick events. Apply the gate. Compare segment-length
   distributions with BAR-ATH's (aggregates only), and drop `seg_log_len` if they diverge. Only Metrica's own ball
   gaps sit at hand-overs (C1), so a gain on Metrica alone may come from gap-edge kinds that need not carry over.
+  - Done 2026-11-08 (`run c5`, home @88025f1e8d, against `c1`, which is the v5 model). Controlled spellF1,
+    IDSSE / Metrica:
+    - **+0.0024 / +0.0125** (0.6632 → 0.6655, 0.7300 → 0.7424), winning 8/14 and 6/6 copies, 4/7 and 3/3 games;
+    - last touch +0.0028 / +0.0085, macroF1 +0.0004 / +0.0018;
+    - by smoothing: σ < 4 +0.0082 (6/8), σ 4–7 +0.0050 (5/6), σ ≥ 7 +0.0019 (3/6).
+  - All three gate tests pass, IDSSE at the 8/14 minimum. **Kept: `possession.SEGMENTS = True`.**
+  - The gain is not where it was aimed. P(true team) in short in-play spells is flat (0.460 → 0.457 /
+    0.470 → 0.477), and turnover recovery moves −0.005 / +0.005. Predicted possessions fall (320 → 315 / 300 → 294),
+    so the features mostly remove wrong possessions rather than finding short ones.
+  - The ablation drops gap events instead of kicks, since C1 found BAR-ATH's kick rate matches the bench and only its
+    gaps are in doubt. It was a two-line filter in `segments.events`, not kept:
+    - Metrica keeps its whole gain (+0.0124 against c1), so the gain does not come from Metrica's gap quirk;
+    - IDSSE, whose gaps are random, falls to −0.0019. Against the full model the no-gap one loses −0.0042 there
+      (wins 3/14), and −0.0086 on σ ≥ 7 copies (0/6), where kicks are rare and gaps give the segment edges.
+  - Segment lengths: BAR-ATH's median event spacing is 41 frames, against 40.6 / 34.2 (C1), so `seg_log_len` stays.
+  - C2's grid on the new P(home): the best cell gives +0.0001 / +0.0007. C2 stays dropped.
+  - **New baseline `c5`** (dead @5349f74532, home @88025f1e8d): controlled 0.6655 / 0.7424, last touch
+    0.6117 / 0.6818.
+  - Submission regenerated twice, with identical SHA-256
+    `cee13f262ae2c061cea351bedcced5a2f39ec782046e34a1ca7b8684b25ad275`, valid. The v5 file is kept as
+    `data/cache/possession_v5_ac12fe95.csv`.
+  - BAR-ATH aggregates, sanity only: 330 possessions of mean 11.1 s (v5: 326 of 11.3 s), 42.2% D across 110
+    stoppages, home 59.5%.
 - [ ] **C6 Learned switch cost**, in a new `src/boundary.py`.
   - A HistGradientBoosting model for b_t = P(controlled in-play change within ±3 frames). Its features carry no team,
     so it needs no views:

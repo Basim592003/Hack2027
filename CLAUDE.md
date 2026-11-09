@@ -134,6 +134,7 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
   - **team shape:** height up the pitch, length, width, forward speed, and the team nearest the ball when it was last and next seen;
   - **restart:** the corner / goal-kick rule, plus the team nearest the ball at the restart;
   - **touches** (`src/touches.py`, since 2026-11-06): the team of the last and next *kick*, kicks in a row by one team, the team of the kick before the last, kicks per team in ±2 s, and the last/next team alone within 1.5 m. A kick is a peak in the change of ball velocity over ±12 frames (≥ 4 m/s) with a player within 2 m.
+  - **segments** (`src/segments.py`, `SEGMENTS`, since 2026-11-08, sprint items C3–C5): `nearest`, `control`, `d_diff` and `comove` pooled over the stretch between the events around each frame and the stretches either side. Also the contrasts between them, the stretch's length, the frame's position in it, the seen share, and the bounding events' kinds and team. It added +0.002 / +0.012 controlled spellF1 (IDSSE / Metrica) on the v5 bench, mostly by removing wrong possessions.
 
   Features are computed from each team's point of view, with the pitch oriented so "own" attacks +x. Training uses both views; inference averages them, so the output is symmetric and cannot learn "home usually has it".
   - `decode_teams` runs a 2-state Viterbi on each live stretch from step 2's D. Each stretch starts free, and a switch costs `penalty`.

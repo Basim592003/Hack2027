@@ -65,7 +65,7 @@ MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samp
                     l2_regularization=1.0, early_stopping=False, random_state=0)
 TOUCHES = True           # the touch feature family; --no-touches turns it off for comparison
 TURNS = True             # change in each team's forward speed; --no-turns turns it off
-SEGMENTS = False         # the segment family (sprint items C3-C5)
+SEGMENTS = True          # the segment family (sprint items C3-C5)
 
 
 def lagged_delta(values, lag):
