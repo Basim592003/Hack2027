@@ -321,7 +321,7 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     `data/cache/possession_v5_ac12fe95.csv`.
   - BAR-ATH aggregates, sanity only: 330 possessions of mean 11.1 s (v5: 326 of 11.3 s), 42.2% D across 110
     stoppages, home 59.5%.
-- [ ] **C6 Learned switch cost**, in a new `src/boundary.py`.
+- [x] **C6 Learned switch cost**, in a new `src/boundary.py`. Dropped.
   - A HistGradientBoosting model for b_t = P(controlled in-play change within ±3 frames). Its features carry no team,
     so it needs no views:
     - event kinds within ±6, 12 and 25 frames;
@@ -332,6 +332,15 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     `deadball.clean_name`, and retrain whenever the possession model changes.
   - Cost = clip(α − β·logit b_t, 0.5, 20). Keep it only if it beats C2 by ≥ 0.005. If kept, `run.py` gains a
     possession out-of-fold step (about +3 min) and saves `final_teamcost_BAR-ATH.npy`.
+  - Done 2026-11-09 with `experiment boundarygrid` (66 s; b_t @578d8a6950 on c5's caches). C2 was dropped, so the bar
+    is the constant cost. The cost is written as clip(6 − β·(logit b_t − logit b₀), 0.5, 20), with b₀ the
+    probability at which it equals 6. The grid is β {0.5, 1, 2} × b₀ {0.02, 0.05, 0.1, 0.2}.
+    - b_t separates real controlled in-play changes fairly well on live frames: AUC 0.88 / 0.94. But its average
+      precision is only 0.24 / 0.41 (base rates 2.4% / 1.7%), so most frames it rates likely are not changes.
+    - Every cell loses. The mildest (β 0.5, b₀ 0.2) gives −0.0007 / −0.0006 (7/14, 2/6), and β 2 goes down to
+      −0.026 / −0.029. Cheaper switching where b_t is high adds wrong possessions: IDSSE 315 → 359 at β 2.
+  - **Dropped.** Like C2, it shows the decoder's constant cost is not the bottleneck. `src/boundary.py` and
+    `experiment boundarygrid` stay for the record; `run.py` is unchanged.
 
 ## D. New evidence (target: Sat 14 Nov), each behind its own flag and gate
 - [ ] **D1 Flight target**, `src/flight.py`.

@@ -8,6 +8,7 @@ whatever the code and flags are when it runs:
     python -m src.experiment oracles         # headroom: true D, true team, perfect switch timing
     python -m src.experiment crossbench --train 4 --test 5   # trained on one noise version, scored on another
     python -m src.experiment eventgrid       # team cost cheap near events (decode.event_costs) vs constant
+    python -m src.experiment boundarygrid    # learned team cost (src/boundary.py) vs constant
 
 Scoring. BAR-ATH's answer key counts *controlled* possession (CHALLENGE.md), and the external labels give
 it to the last toucher, so every decode is scored against both: the labels as they are ("lt") and
@@ -34,7 +35,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from . import controlled, deadball, decode, features, noise, possession, segments, touches
+from . import boundary, controlled, deadball, decode, features, noise, possession, segments, touches
 from .bench import bench_games, source_of
 from .match import A, CACHE_DIR, D, H, X, Match
 
@@ -397,24 +398,109 @@ def event_grid(games=None):
                              k=k, **score_both(match, labels)))
         print("  {}".format(match.name), flush=True)
     table = pd.DataFrame(rows)
-    base = table[(table.low == decode.TEAM_COST) & (table.high == decode.TEAM_COST)
-                 & (table.k == EVENT_GRID["k"][0])]
-    table = table.merge(base[["copy", "spellF1_ctl", "spellF1_lt"]], on="copy",
-                        suffixes=("", "_const"))
+    base = (table.low == decode.TEAM_COST) & (table.high == decode.TEAM_COST) \
+        & (table.k == EVENT_GRID["k"][0])
+    return grid_report(table, ["low", "high", "k"], base, "eventgrid",
+                       "event-gated team cost vs constant {} (dead @{}, home @{})".format(
+                           decode.TEAM_COST, dead_tag, home_tag))
+
+
+def grid_report(table, keys, is_base, name, header, extra=()):
+    """Each cell of a cost grid against the grid's constant-cost cell (is_base), paired by copy
+    and per source; saved as NAME.csv."""
+    base = table[is_base][["copy", "spellF1_ctl", "spellF1_lt"]]
+    table = table.merge(base, on="copy", suffixes=("", "_const"))
     table["diff_ctl"] = table.spellF1_ctl - table.spellF1_ctl_const
     table["diff_lt"] = table.spellF1_lt - table.spellF1_lt_const
-    save_table = table.drop(columns=["spellF1_ctl_const", "spellF1_lt_const"])
+    table = table.drop(columns=["spellF1_ctl_const", "spellF1_lt_const"])
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    save_table.to_csv(os.path.join(RESULTS_DIR, "eventgrid.csv"), index=False)
-    summary_table = table.groupby(["source", "low", "high", "k"]).agg(
-        ctl=("spellF1_ctl", "mean"), diff_ctl=("diff_ctl", "mean"),
-        won=("diff_ctl", lambda d: "{}/{}".format(int((d > 0).sum()), len(d))),
-        diff_lt=("diff_lt", "mean"), n_pred=("n_pred_ctl", "mean"))
-    print("== event-gated team cost vs constant {} (dead @{}, home @{}); n_gt_ctl {}".format(
-        decode.TEAM_COST, dead_tag, home_tag,
-        table.groupby("source").n_gt_ctl.mean().round(1).to_dict()))
-    print(summary_table.unstack("source").to_string(float_format="%.4f"))
+    table.to_csv(os.path.join(RESULTS_DIR, name + ".csv"), index=False)
+    columns = dict(ctl=("spellF1_ctl", "mean"), diff_ctl=("diff_ctl", "mean"),
+                   won=("diff_ctl", lambda d: "{}/{}".format(int((d > 0).sum()), len(d))),
+                   diff_lt=("diff_lt", "mean"), n_pred=("n_pred_ctl", "mean"))
+    columns.update({column: (column, "mean") for column in extra})
+    print("== {}; n_gt_ctl {}".format(
+        header, table.groupby("source").n_gt_ctl.mean().round(1).to_dict()))
+    print(table.groupby(["source"] + keys).agg(**columns).unstack("source")
+          .to_string(float_format="%.4f"))
     return table
+
+
+# -- learned switch cost ---------------------------------------------------------------------------
+
+BOUNDARY_GRID = dict(beta=(0.5, 1.0, 2.0), neutral=(0.02, 0.05, 0.1, 0.2))
+
+
+def boundary_features(match, dead_tag, home_tag):
+    """(P(dead), P(home), boundary features) for a bench copy, all out of fold."""
+    p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
+    events = segments.match_events(match, deadball.decode(p_dead, match.period,
+                                                          possession.DEAD_PENALTY))
+    return p_dead, p_home, boundary.frame_features(match, p_dead, p_home, events)
+
+
+def boundary_oof(games, dead_tag, home_tag):
+    """Tag of the out-of-fold b_t (src/boundary.py) on top of the given P(dead) and P(home)
+    caches, computing it only if it is not cached."""
+    settings = dict(dead=dead_tag, home=home_tag, games=[m.name for m in games],
+                    params=boundary.MODEL_PARAMS, stride=boundary.NEGATIVE_STRIDE,
+                    within=boundary.WITHIN)
+    tag = signature((features, touches, segments, boundary), **settings)
+    paths = [boundary.oof_path(m.name, tag) for m in games]
+    if _finished("pswitch", tag, paths):
+        print("b_t out-of-fold: cached @{}".format(tag), flush=True)
+        return tag
+    print("b_t out-of-fold @{}".format(tag), flush=True)
+    tables = {}
+    for match in games:
+        feats = boundary_features(match, dead_tag, home_tag)[2]
+        tables[match.name] = (boundary.as_matrix(feats),) + boundary.targets(match.labels)
+    for held_out in sorted({deadball.clean_name(m) for m in games}):
+        model = boundary.fit(tables, [m.name for m in games
+                                      if deadball.clean_name(m) != held_out])
+        for match in games:
+            if deadball.clean_name(match) == held_out:
+                b = model.predict_proba(tables[match.name][0])[:, 1]
+                np.save(boundary.oof_path(match.name, tag), b.astype(np.float32))
+        print("  fold {:<14} done".format(held_out), flush=True)
+    _finish("pswitch", tag, games, settings)
+    return tag
+
+
+def boundary_grid(games=None):
+    """The learned switch cost at every (beta, neutral) in BOUNDARY_GRID against the constant
+    decode.TEAM_COST (beta = 0), from out-of-fold P(dead), P(home) and b_t. Saved as
+    boundarygrid.csv."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+    games = games if games is not None else bench_games()
+    dead_tag = dead_oof(games)
+    home_tag = home_oof(games, dead_tag)
+    switch_tag = boundary_oof(games, dead_tag, home_tag)
+    rows, quality = [], []
+    for match in games:
+        p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
+        b = np.load(boundary.oof_path(match.name, switch_tag))
+        positive, live = boundary.targets(match.labels)
+        quality.append(dict(source=source_of(match.name),
+                            auc=roc_auc_score(positive[live], b[live]),
+                            avg_precision=average_precision_score(positive[live], b[live]),
+                            positive_share=positive[live].mean()))
+        for beta, neutral in [(0.0, 0.5)] + list(itertools.product(*BOUNDARY_GRID.values())):
+            costs = boundary.switch_costs(b, beta, neutral, decode.TEAM_COST)
+            labels = decode.decode(p_dead, p_home, match.period, decode.TEAM_COST,
+                                   decode.DEAD_COST, False, team_costs=costs)
+            labels = np.where(match.period > 0, labels, X).astype(np.int8)
+            rows.append(dict(source=source_of(match.name), copy=match.name, beta=beta,
+                             neutral=neutral, cheap=np.mean(costs[live] < decode.TEAM_COST),
+                             **score_both(match, labels)))
+        print("  {}".format(match.name), flush=True)
+    print("== b_t on live frames, out of fold (positive: a controlled change within {} frames)"
+          .format(boundary.WITHIN))
+    print(pd.DataFrame(quality).groupby("source").mean().to_string(float_format="%.4f"))
+    table = pd.DataFrame(rows)
+    return grid_report(table, ["beta", "neutral"], table.beta == 0, "boundarygrid",
+                       "learned team cost vs constant {} (dead @{}, home @{}, b_t @{})".format(
+                           decode.TEAM_COST, dead_tag, home_tag, switch_tag), extra=("cheap",))
 
 
 def compare(name_a, name_b):
@@ -457,6 +543,7 @@ if __name__ == "__main__":
     cross_parser.add_argument("--train", type=int, required=True, metavar="VERSION")
     cross_parser.add_argument("--test", type=int, required=True, metavar="VERSION")
     sub.add_parser("eventgrid", help="event-gated team cost grid against the constant cost")
+    sub.add_parser("boundarygrid", help="learned team cost grid against the constant cost")
     args = parser.parse_args()
     if args.command == "run":
         run(args.name)
@@ -468,3 +555,5 @@ if __name__ == "__main__":
         crossbench(args.train, args.test)
     elif args.command == "eventgrid":
         event_grid()
+    elif args.command == "boundarygrid":
+        boundary_grid()
