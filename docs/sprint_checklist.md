@@ -533,9 +533,16 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     which trains exactly E3's models.
 
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
-- [ ] **F1** Re-pick the decoder costs on the final model.
-- [ ] **F2** Rebuild with `data/cache/` moved aside: two runs give an identical SHA-256, and the validator passes. Run
+- [x] **F1** Re-pick the decoder costs on the final model.
+  - Done 2026-11-09 with `costgrid e3`: IDSSE's plateau is team 8–10 and Metrica's best is 12, within 0.002 of 10.
+    **Team 10 / dead 40 stays.** E4–E6 changed nothing that ships, so E3 is the final model.
+- [x] **F2** Rebuild with `data/cache/` moved aside: two runs give an identical SHA-256, and the validator passes. Run
   `evaluation/run_evaluation.py` as an alignment check only.
+  - Done 2026-11-09. Two rebuilds from an empty `data/cache/` (about 6 min each, raw-data conversion included) both
+    give SHA-256 **`dd9339aeaaddabb226338a429eb12cb8e1c5f2a0ff351ab02091c7a8ac888f4b`**, the E3 file, and pass the
+    validator. The warm cache is restored.
+  - Alignment check on the public 5 minutes, used for nothing else: 17 predicted possessions against 17 real, so
+    frames and format line up.
 - [ ] **F3** Update `docs/technical_document.md` §1 and §3–7, CLAUDE.md, and the docstrings of the modules that changed.
 - [ ] **F4** The user submits the CSV, the repo link and the tech doc through the form.
 
