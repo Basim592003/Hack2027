@@ -399,13 +399,28 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     The difference is frames decoded as D: about 12% on IDSSE and 56% on Metrica. That fits the true-D oracle,
     +0.044 / +0.078 (C1), the largest single headroom after the team itself.
 
+- [ ] **D3 Dead ball on live frames with the ball missing** (added 2026-11-09 from D2's check). On these frames the
+  decoder says D on about 12% (IDSSE) and 56% (Metrica), while P(home) has the right team. The true-D oracle is
+  worth +0.044 / +0.078.
+  - First, a diagnostic with aggregates only: split those errors by gap length, by Metrica's own gaps against v5's
+    random ones, and by time since the last kick. Compare BAR-ATH's share of D inside ball gaps with the bench's.
+  - Only then a fix, in P(dead)'s features or in how the decoder enters D during a gap. The bench's in-play gaps are
+    partly synthetic (v5), so a fix that only works on them would not carry over.
+
 ## E. Training recipe (in spare sitting time during C–D; finish by Sun 15 Nov)
-- [ ] **E1 Monotonic constraints.** Pass feature names into `possession.fit`, and assert every pattern matches at
-  least one feature.
+- [x] **E1 Monotonic constraints.** Pass feature names into `possession.fit`, and assert every pattern matches at
+  least one feature. Dropped.
   - +1: `nearest_*`, `control_*`, `kick_last`/`kick_next` and their streaks, `close_last`/`close_next`,
     `kicks_own_*`, `restart_rule`, and the new signed features.
   - −1: `d_diff*`, `kicks_opp_*`.
   - Never constrain `last_nearest`, `next_nearest` or `kick_prev`.
+  - Done 2026-11-09. `possession.monotonic(names)` builds `monotonic_cst` from `MONOTONE` plus the touch and segment
+    prefixes, and raises if a prefix matches nothing. `fit` and every caller now take the feature names. Of 118
+    features, 32 get +1, 12 get −1 and 74 stay free; the segment contrasts are free too.
+  - `run e1` (home @066708f61f) against `c5`, controlled spellF1: **−0.0037 / −0.0127**, copies 5/14 and 0/6. Last
+    touch −0.0052 / −0.0110. This is past the hygiene limit (−0.002), so it is **dropped: `MONOTONIC = False`**, which
+    gives back the C5 model exactly. The intuitive directions do not hold once features interact: the next kick's
+    team, for one, means something else right after a turnover.
 - [ ] **E2 Denser sampling.** In `training_rows`, take every frame within ±12 frames of an in-play change, and every
   5th frame elsewhere.
 - [ ] **E3 Extra seed for training only** (`bench.TRAIN_SEEDS = (0, 1)`); evaluate on seed 0 only. Keep full feature

@@ -74,6 +74,17 @@ TURNS = True             # change in each team's forward speed; --no-turns turns
 SEGMENTS = True          # the segment family (sprint items C3-C5)
 FLIGHT = False           # the flight family (sprint item D1: below the keep gate, off)
 PRESSURE = False         # the pressure family (sprint item D2: below the keep gate, off)
+MONOTONIC = False        # constrain the features below to push one way only (sprint item E1: lost, off)
+# Feature-name prefixes whose larger values can only make "this view's team has the ball" more (+1)
+# or less (-1) likely. The contrasts between segments and last_nearest, next_nearest and kick_prev
+# (whose sign depends on what happened in between) stay free.
+MONOTONE = {"nearest_": 1, "control_": 1, "d_diff": -1, "restart_rule": 1}
+MONOTONE_TOUCHES = {"kick_last": 1, "kick_next": 1, "close_last": 1, "close_next": 1,
+                    "kicks_own_": 1, "kicks_opp_": -1}
+MONOTONE_SEGMENTS = {"seg_nearest": 1, "seg_control": 1, "seg_comove": 1, "seg_d_diff": -1,
+                     "seg_start_team": 1, "seg_end_team": 1}
+FREE = ("last_nearest", "next_nearest", "kick_prev")
+CONTRASTS = ("_from_prev", "_to_next")
 
 
 def lagged_delta(values, lag):
@@ -362,9 +373,27 @@ def training_rows(tables, names_in):
     return np.concatenate(xs), np.concatenate(ys)
 
 
-def fit(tables, names_in):
+def monotonic(names):
+    """monotonic_cst for these feature names (MONOTONE and the families switched on); every prefix
+    must match at least one feature, so a renamed feature cannot silently drop its constraint."""
+    prefixes = dict(MONOTONE)
+    prefixes.update(MONOTONE_TOUCHES if TOUCHES else {})
+    prefixes.update(MONOTONE_SEGMENTS if SEGMENTS else {})
+    unmatched = [p for p in prefixes if not any(n.startswith(p) for n in names)]
+    if unmatched:
+        raise ValueError("monotone prefixes match no feature: {}".format(unmatched))
+    out = []
+    for name in names:
+        signs = [sign for prefix, sign in prefixes.items() if name.startswith(prefix)]
+        out.append(0 if name in FREE or name.endswith(CONTRASTS) or not signs else signs[0])
+    return out
+
+
+def fit(tables, names_in, names):
+    """The team model on the given games; names are the feature names, in column order."""
     x, y = training_rows(tables, names_in)
-    return HistGradientBoostingClassifier(**MODEL_PARAMS).fit(x, y)
+    params = dict(MODEL_PARAMS, monotonic_cst=monotonic(names)) if MONOTONIC else MODEL_PARAMS
+    return HistGradientBoostingClassifier(**params).fit(x, y)
 
 
 def p_home(model, views):
@@ -410,11 +439,11 @@ def build_tables(games, dead_tag=None):
     return tables, names
 
 
-def cross_validate(games, tables, tag=None):
+def cross_validate(games, tables, names, tag=None):
     groups = sorted({deadball.clean_name(m) for m in games})
     p = {}
     for held_out in groups:
-        model = fit(tables, [m.name for m in games if deadball.clean_name(m) != held_out])
+        model = fit(tables, [m.name for m in games if deadball.clean_name(m) != held_out], names)
         for match in games:
             if deadball.clean_name(match) == held_out:
                 p[match.name] = p_home(model, tables[match.name][0])
@@ -441,9 +470,9 @@ def report(games, tables, p):
     return table
 
 
-def apply_to_bar(games, tables, penalty):
+def apply_to_bar(games, tables, names, penalty):
     from .sources import bar_ath
-    model = fit(tables, [m.name for m in games])
+    model = fit(tables, [m.name for m in games], names)
     bar = bar_ath()
     dead = predicted_dead(bar, os.path.join(CACHE_DIR, "pdead_BAR-ATH.npy"))
     _, views = both_views(bar, dead)
@@ -479,6 +508,6 @@ if __name__ == "__main__":
     tables, names = build_tables(games)
     print("{} games, {} features per view".format(len(games), len(names)), flush=True)
     if args.bar is not None:
-        apply_to_bar(games, tables, args.bar)
+        apply_to_bar(games, tables, names, args.bar)
     else:
-        report(games, tables, cross_validate(games, tables))
+        report(games, tables, cross_validate(games, tables, names))

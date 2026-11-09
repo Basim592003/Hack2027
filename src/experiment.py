@@ -98,7 +98,8 @@ def home_oof(games, dead_tag):
     settings = dict(dead=dead_tag, games=[m.name for m in games], params=possession.MODEL_PARAMS,
                     stride=possession.TRAIN_STRIDE, touches=possession.TOUCHES,
                     turns=possession.TURNS, segments=possession.SEGMENTS,
-                    flight=possession.FLIGHT, pressure=possession.PRESSURE)
+                    flight=possession.FLIGHT, pressure=possession.PRESSURE,
+                    monotonic=possession.MONOTONIC)
     tag = signature((features, touches, deadball, possession, segments, flight, pressure),
                     **settings)
     paths = [possession.oof_path(m.name, tag) for m in games]
@@ -106,8 +107,8 @@ def home_oof(games, dead_tag):
         print("P(home) out-of-fold: cached @{}".format(tag), flush=True)
         return tag
     print("P(home) out-of-fold @{}".format(tag), flush=True)
-    tables, _ = possession.build_tables(games, dead_tag)
-    possession.cross_validate(games, tables, tag)
+    tables, names = possession.build_tables(games, dead_tag)
+    possession.cross_validate(games, tables, names, tag)
     _finish("phome", tag, games, settings)
     return tag
 
@@ -284,12 +285,12 @@ def crossbench(train_version, test_version):
     train, test = games_at(train_version, current), games_at(test_version, current)
     dead_tag = dead_oof(train)
     dead_table, dead_names = deadball.tables(train)
-    team_tables, _ = possession.build_tables(train, dead_tag)
+    team_tables, team_names = possession.build_tables(train, dead_tag)
     rows = []
     for held_out in sorted({deadball.clean_name(m) for m in train}):
         names_in = [m.name for m in train if deadball.clean_name(m) != held_out]
         dead_model = deadball.fit(dead_table, names_in)
-        team_model = possession.fit(team_tables, names_in)
+        team_model = possession.fit(team_tables, names_in, team_names)
         for match in test:
             if deadball.clean_name(match) != held_out:
                 continue

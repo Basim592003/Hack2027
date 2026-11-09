@@ -57,8 +57,8 @@ def predict_bar(games):
     del matrix
 
     print("step 3  team in possession", flush=True)
-    tables, _ = possession.build_tables(games)
-    team_model = possession.fit(tables, [m.name for m in games])
+    tables, team_names = possession.build_tables(games)
+    team_model = possession.fit(tables, [m.name for m in games], team_names)
     del tables
     stoppages = deadball.decode(p_dead, bar.period, possession.DEAD_PENALTY)
     _, views = possession.both_views(bar, stoppages)
