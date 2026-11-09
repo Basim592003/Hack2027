@@ -399,13 +399,47 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     The difference is frames decoded as D: about 12% on IDSSE and 56% on Metrica. That fits the true-D oracle,
     +0.044 / +0.078 (C1), the largest single headroom after the team itself.
 
-- [ ] **D3 Dead ball on live frames with the ball missing** (added 2026-11-09 from D2's check). On these frames the
+- [x] **D3 Dead ball on live frames with the ball missing** (added 2026-11-09 from D2's check). On these frames the
   decoder says D on about 12% (IDSSE) and 56% (Metrica), while P(home) has the right team. The true-D oracle is
   worth +0.044 / +0.078.
   - First, a diagnostic with aggregates only: split those errors by gap length, by Metrica's own gaps against v5's
     random ones, and by time since the last kick. Compare BAR-ATH's share of D inside ball gaps with the bench's.
   - Only then a fix, in P(dead)'s features or in how the decoder enters D during a gap. The bench's in-play gaps are
     partly synthetic (v5), so a fix that only works on them would not carry over.
+  - Diagnostic done 2026-11-09 (`src/diag/dead_in_gaps.py` on `c5`; aggregates only):
+    - live gap frames decoded D sit in long gaps. In gaps of 16 s or more it is 30% (IDSSE) and 66% (Metrica); in
+      gaps under 4 s, 1–2%.
+    - on Metrica they come from the sample's own gaps (66% decoded D), not from v5's added ones (13%).
+    - **BAR-ATH has no ball gaps of 1–4 s at all** (zero frames in 25–100-frame gaps, 0.1% under 1 s), while v5
+      draws many. Its tracker evidently fills short losses. 73% of its gap frames are in gaps of 16 s or more, as on
+      the bench, and 93% of those are decoded D (bench 91% / 89%).
+  - **Cause: unannotated stoppages in the Metrica labels**, not the model. In the clean sample, all 47 "live" ball
+    gaps of 4 s or more (31,413 frames, about 7 min a game) contain no event of any type. The players walk through
+    them (mean 1.26 m/s, under 1.5 m/s on 75% of frames), like annotated stoppages (1.02 m/s, 87%) and unlike live
+    play (2.18 m/s, 22%). Shorter gaps hold an event 39% of the time. The sample blanks its ball through stoppages,
+    and the labels only close a stoppage at a SET PIECE event.
+  - Fix: `external.unannotated_stoppages` marks such stretches D (4 s, no event of any type). That changes 31,413
+    frames and nothing else; Metrica's D share goes 33.4 / 31.7 / 25.3% → 40.2 / 40.6 / 31.7%. The simulator follows
+    the labels, so the bench is rebuilt as **noise v6**, with no simulator change. The old clean caches are in
+    `data/cache/old_clean/`.
+  - Decision rule, set before the run: keep the corrected labels unless a model trained on them loses ≥ 0.005 on
+    either source against the v5-trained model, both scored on v6 (`crossbench --train 5 --test 6` against
+    `run v6`). The labels define the score, so a gain on Metrica is expected and proves nothing; IDSSE is the
+    real test.
+  - Result, both scored on v6, controlled spellF1, v5-trained → v6-trained:
+    - **IDSSE 0.6655 → 0.6708 (+0.0052)**, 10/14 copies and 6/7 games. Its copies and labels are identical in v5
+      and v6, so this is purely the effect of training on corrected Metrica labels;
+    - Metrica 0.7451 → 0.7538 (+0.0087), 5/6 copies;
+    - last touch +0.0045 / +0.0081, macroF1 +0.007 / +0.005; every smoothing band gains (+0.005 / +0.007 / +0.008).
+
+    **Kept.** It also clears the normal keep gate.
+  - **New baseline `v6`** (dead @33252c085a, home @7cecc7c6ac): controlled 0.6708 / 0.7538, last touch
+    0.6162 / 0.6886. Metrica numbers from here on are on the corrected labels and not comparable with earlier ones.
+  - Submission regenerated twice, with identical SHA-256
+    `ac721327c4d58df0d571ed36deefac8e7b41bd084e468c929f0d0b7bf9305528`, valid. The C5 file is kept as
+    `data/cache/possession_c5_cee13f26.csv`.
+  - BAR-ATH aggregates, sanity only: 323 possessions of mean 11.0 s (C5: 330), 43.9% D across 105 stoppages (C5:
+    42.2%, 110), home 60.0%.
 
 ## E. Training recipe (in spare sitting time during C–D; finish by Sun 15 Nov)
 - [x] **E1 Monotonic constraints.** Pass feature names into `possession.fit`, and assert every pattern matches at

@@ -11,6 +11,13 @@ definitions rather than tuned against anything:
     CHALLENGE.md rule that a touch without control is not a change of possession.
   * dead: from the event that stopped play (ball out, foul, offside, goal) until the set piece
     that restarts it. Every restart ends a stoppage, so every set piece opens one.
+  * dead, too: a stoppage nobody annotated (unannotated_stoppages). The sample's tracking blanks
+    the ball through every stoppage. Where the events call play live but the ball is gone for at
+    least UNANNOTATED_STOPPAGE frames and no event of any type starts, play has stopped. All 47
+    such stretches (31k frames, about 7 minutes a game) have no event at all, and the players walk
+    through them (mean 1.26 m/s, under 1.5 m/s on 75% of frames, like annotated stoppages at
+    1.02 m/s and 87%, against 2.18 m/s and 22% in live play). Shorter gaps contain an event 39%
+    of the time, as live play does. Found 2026-11-09, sprint item D3.
   * X before each half's kick-off and after its last event, as the BAR-ATH ground truth does.
 
     python -m src.external            # converts, caches and prints label statistics
@@ -35,6 +42,7 @@ POSSESSION_TYPES = {"PASS", "CARRY", "RECOVERY", "SHOT", "BALL LOST", "BALL OUT"
 # offsides, handballs -- play stops where the event happens.
 TRAVELLING_TYPES = {"PASS", "SHOT", "BALL OUT", "BALL LOST", "CARRY"}
 IGNORED_BEFORE_RESTART = {"CARD", "SET PIECE"}
+UNANNOTATED_STOPPAGE = 100   # frames (4 s) without ball or event, labelled live, that are a stoppage
 
 
 # -- events ------------------------------------------------------------------------------------
@@ -113,6 +121,20 @@ def labels_from_events(events, n_frames):
     return labels, period
 
 
+def unannotated_stoppages(labels, events, bx):
+    """labels with D wherever they say live but the tracked ball is missing for at least
+    UNANNOTATED_STOPPAGE frames in a row and no event of any type starts (module docstring)."""
+    starts = np.sort(events["start"].values - 1)
+    out = labels.copy()
+    run = ((labels == H) | (labels == A)) & np.isnan(bx)
+    edges = np.diff(np.concatenate(([0], run.astype(np.int8), [0])))
+    for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        if stop - start >= UNANNOTATED_STOPPAGE and \
+                np.searchsorted(starts, start) == np.searchsorted(starts, stop):
+            out[start:stop] = D
+    return out
+
+
 # -- tracking ----------------------------------------------------------------------------------
 
 def _tracking_csv(game):
@@ -162,6 +184,7 @@ def metrica_game(game, refresh=False):
                           np.zeros(len(bx), dtype=np.int8))
             events = _events_csv(game)
         match.labels, match.period = labels_from_events(events, match.n_frames)
+        match.labels = unannotated_stoppages(match.labels, events, match.bx)
         return match
 
     return cached(name, build, refresh)

@@ -112,7 +112,8 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
   - `src/external.py` loads Metrica sample games 1–3 and derives labels from their events with `labels_from_events`:
     - possession = the team of the latest on-ball event;
     - challenges don't move possession;
-    - D runs from the event that stopped play until the next SET PIECE.
+    - D runs from the event that stopped play until the next SET PIECE;
+    - since 2026-11-09 (sprint item D3), `unannotated_stoppages` also marks D where the events say live but the ball is missing for ≥ 4 s and no event of any type starts. That covers 31k frames, about 7 min a game, in which the players walk as in a stoppage. The sample blanks its ball through stoppages, but its labels only close one at a SET PIECE. Metrica's D share goes from 25–33% to 32–41%.
   - `src/idsse.py` loads the 7 DFL games. Labels come from the per-frame `BallStatus` and `BallPossession` flags; referees are dropped, and the halves are joined by 250 `X` frames.
 - `src/noise.py`: `degrade()` makes clean labelled games look like the BAR-ATH ATD:
   - drops players (mean 20.5 tracked, about 11 tracklet starts a minute) and re-slots them into a 46-slot pool;
@@ -120,11 +121,13 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
   - re-renders the ball during stoppages, gone in about 75% of them with edges blurred by about ±1 s;
   - since v4, renders the whole path of the ball through every stoppage (`dead_ball_path`). It runs on and slows, is fetched or a new ball appears, is carried by the restart taker (the player nearest the restart spot when play resumes), and is set on the spot. Neither source has a real dead ball to copy: IDSSE freezes it, Metrica blanks it;
   - adds live-ball dropout as a parameter.
-  - since v5 (2026-11-08, sprint item B2), the bench in use:
+  - since v5 (2026-11-08, sprint item B2):
     - each copy has its own random streams (`copy_streams`, keyed on the game, dropout level and seed); up to v4 every copy shared seed 0;
     - the ball goes through a zero-phase Gaussian of σ drawn from 0–10 frames (`smooth_ball`). BAR-ATH's ratio of ±4- to ±12-frame kinks (0.19, `coverage.kink_rates`) matches σ ≈ 7.5–8 on clean games of both sources;
     - in-play ball gaps get a median drawn from 40–200 frames;
     - `noise_params` recomputes a copy's draws, and `experiment compare` uses them to report results by smoothing band.
+  - v6 (2026-11-09, sprint item D3), the bench in use, has no simulator change. The copies are rebuilt because the Metrica labels now mark unannotated stoppages, and the dead-ball rendering and in-play dropout follow the labels. Trained on v6 rather than v5 and scored on v6, controlled spellF1 gains +0.005 on IDSSE, whose copies and labels are unchanged, and +0.009 on Metrica.
+  - BAR-ATH has no ball gaps of 1–4 s at all, so its tracker evidently fills short losses, while v5/v6 draw many short in-play gaps. On the bench these are decoded correctly (1–2% called D), so the mismatch costs little.
   - Cached names carry `noise.VERSION`; **bump it after any simulator change.**
 - `src/bench.py`: `bench_games()` returns 10 clean games × live-dropout levels (0.10, 0.20) = 20 degraded games. `run(predict)` scores any `Match -> codes` function with the official scorer.
   - **Always report results per source, never pooled**, because the sources' label conventions differ.

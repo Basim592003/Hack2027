@@ -50,6 +50,10 @@ BAR-ATH's ratio of 4-frame to 12-frame kinks (0.19, coverage.kink_rates) matches
 about 7.5-8 frames on the clean games, so the range runs to 10. B1 in docs/sprint_checklist.md found
 no delay in BAR-ATH's ball, so the filter is zero-phase.
 
+v6 changes nothing here. The Metrica sample's labels now mark the stoppages its events leave out
+(src/external.py, unannotated_stoppages), and the dead-ball rendering and in-play dropout follow the
+labels, so the copies are rebuilt under a new name.
+
 Deterministic for a given seed, so a benchmark run reproduces exactly. Each copy draws from its own
 streams (copy_streams), keyed on the game and the dropout level.
 """
@@ -61,7 +65,7 @@ from scipy.ndimage import gaussian_filter1d
 
 from .match import A, D, H, X
 
-VERSION = 5              # part of every cached degraded game's name; bump on any change here
+VERSION = 6              # part of every cached degraded game's name; bump on any change here
 TEAM_SLOTS = 23         # 46 slots for two teams, as in the BAR-ATH metadata
 PLAYER_STARTS_PER_MIN = 11.3 / 22
 PLAYER_MISSING_SHARE = 1 - 20.5 / 22
