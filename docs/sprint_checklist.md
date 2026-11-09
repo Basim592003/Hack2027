@@ -519,6 +519,19 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     short of the gate, and the best of four tries is weak evidence. `MODEL_PARAMS` is unchanged. Four of the six
     allowed settings are used.
 
+- [x] **E5 A second extra seed** (added 2026-11-09, since more training data was E3's lever): `EXTRA_SEEDS = (1, 2)`.
+  Keep it if it clears the gate and gains ≥ 0.003, since it adds half again to the run time. Dropped.
+  - `run e5` (home @39918f5f9a) against `e3`: **−0.0002 / −0.0011**, copies 7/14 and 3/6. Its own cost grid is no
+    better (team 10: 0.6839 / 0.7689). Peak memory 6.3 GB, 28 min. One extra seed captured the benefit.
+    **Dropped: `EXTRA_SEEDS = (1,)`.**
+- [x] **E6 Extra seeds for the dead-ball model** (added 2026-11-09): train `deadball` on the extra copies too. Its
+  out-of-fold P(dead) for the extra copies then comes from models that saw the other games' extra copies. Same bar
+  as E5. Dropped.
+  - `deadball.out_of_fold` now takes `tables()` of the extra copies, and `TRAIN_EXTRA` decides whether they train it.
+    `run e6` (dead @c32a393a2e, home @76bf58838a) against `e3`: **−0.0007 / −0.0030**, copies 7/14 and 3/6. Its own
+    cost grid is no better (team 10: 0.6833 / 0.7670; 12: 0.6811 / 0.7689). **Dropped: `TRAIN_EXTRA = False`**,
+    which trains exactly E3's models.
+
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [ ] **F1** Re-pick the decoder costs on the final model.
 - [ ] **F2** Rebuild with `data/cache/` moved aside: two runs give an identical SHA-256, and the validator passes. Run

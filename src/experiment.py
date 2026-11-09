@@ -103,7 +103,8 @@ def dead_oof(games):
     """Tag of the out-of-fold P(dead) for these games and their extra noise copies, computing it
     only if it is not cached. The extra copies never train the dead-ball model."""
     settings = dict(games=[m.name for m in games], extra=extra_names(games),
-                    params=deadball.MODEL_PARAMS, stride=deadball.TRAIN_STRIDE)
+                    params=deadball.MODEL_PARAMS, stride=deadball.TRAIN_STRIDE,
+                    train_extra=deadball.TRAIN_EXTRA)
     tag = signature((features, touches, deadball), **settings)
     paths = [deadball.oof_path(name, tag) for name in [m.name for m in games] + settings["extra"]]
     if _finished("pdead", tag, paths):
@@ -111,7 +112,7 @@ def dead_oof(games):
         return tag
     print("P(dead) out-of-fold @{}".format(tag), flush=True)
     table, _ = deadball.tables(games)
-    deadball.out_of_fold(games, table, tag, extra_copies(games))
+    deadball.out_of_fold(games, table, tag, deadball.tables(extra_copies(games))[0])
     _finish("pdead", tag, games, settings)
     return tag
 

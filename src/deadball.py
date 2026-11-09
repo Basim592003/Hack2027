@@ -34,6 +34,7 @@ TRAIN_STRIDE = 5   # consecutive frames are near-duplicates; every 5th keeps the
 MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samples_leaf=200,
                     l2_regularization=1.0, random_state=0)
 PENALTIES = (0.0, 5.0, 10.0, 20.0, 40.0, 80.0)
+TRAIN_EXTRA = False  # sprint item E6: extra noise copies train this model too (lost on the bench, off)
 CLIP = 1e-4
 
 
@@ -165,25 +166,25 @@ def fit(table, names_in):
     return make_model().fit(x, y)
 
 
-def out_of_fold(games, table, tag=None, extra=()):
-    """P(dead) for every game from a model that never saw that game, at any noise level. `extra`
-    copies of the same games (another noise seed, src/possession.py's EXTRA_SEEDS) get theirs from
-    the same models, with features computed one copy at a time rather than held in `table`."""
+def out_of_fold(games, table, tag=None, extra=None):
+    """P(dead) for every game from a model that never saw that game, at any noise level. `extra` is
+    tables() of extra noise copies of the same games (src/possession.py's EXTRA_SEEDS): they get
+    their P(dead) from the same models, and with TRAIN_EXTRA the other games' copies train them."""
+    extra = extra or {}
+    both = dict(table, **extra)
     groups = sorted({clean_name(m) for m in games})
     p_dead = {}
     for held_out in groups:
         train = [m.name for m in games if clean_name(m) != held_out]
-        model = fit(table, train)
-        for match in games:
-            if clean_name(match) == held_out:
-                p_dead[match.name] = model.predict_proba(table[match.name][0])[:, 1]
-                path = oof_path(match.name, tag)
+        if TRAIN_EXTRA:
+            train += [name for name in extra if name.split("~")[0] != held_out]
+        model = fit(both, train)
+        for name in [m.name for m in games] + list(extra):
+            if name.split("~")[0] == held_out:
+                p_dead[name] = model.predict_proba(both[name][0])[:, 1]
+                path = oof_path(name, tag)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                np.save(path, p_dead[match.name].astype(np.float32))
-        for match in extra:
-            if clean_name(match) == held_out:
-                p_dead[match.name] = model.predict_proba(as_matrix(frame_features(match))[1])[:, 1]
-                np.save(oof_path(match.name, tag), p_dead[match.name].astype(np.float32))
+                np.save(path, p_dead[name].astype(np.float32))
         print("  fold {:<14} trained on {} games".format(held_out, len(train)), flush=True)
     return p_dead
 

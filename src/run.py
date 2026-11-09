@@ -52,9 +52,11 @@ def predict_bar(games):
     extra = bench_games(seeds=possession.EXTRA_SEEDS, convention=CONVENTION) \
         if possession.EXTRA_SEEDS else []
     table, names = deadball.tables(games)
-    deadball.out_of_fold(games, table, extra=extra)
-    dead_model = deadball.fit(table, [m.name for m in games])
-    del table
+    extra_table = deadball.tables(extra)[0]
+    deadball.out_of_fold(games, table, extra=extra_table)
+    dead_in = [m.name for m in games] + (list(extra_table) if deadball.TRAIN_EXTRA else [])
+    dead_model = deadball.fit(dict(table, **extra_table), dead_in)
+    del table, extra_table
     _, matrix = as_matrix(frame_features(bar), names)
     p_dead = dead_model.predict_proba(matrix)[:, 1]
     del matrix
