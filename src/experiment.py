@@ -78,18 +78,40 @@ def _finish(kind, tag, games, settings):
                    "settings": settings}, handle, indent=1, sort_keys=True, default=str)
 
 
+def extra_names(games):
+    """Names of the extra noise copies (possession.EXTRA_SEEDS) of these bench copies, in the order
+    bench_games builds them, without loading anything."""
+    names = []
+    for match in games:
+        clean, made = match.name.split("~")[:2]
+        level = int(made.split("live")[1][:2]) / 100
+        names.extend(noise.noisy_name(clean, level, seed) for seed in possession.EXTRA_SEEDS)
+    return names
+
+
+def extra_copies(games):
+    """The extra noise copies themselves (built and cached on first use)."""
+    if not possession.EXTRA_SEEDS:
+        return []
+    extra = bench_games(seeds=possession.EXTRA_SEEDS)
+    if [m.name for m in extra] != extra_names(games):
+        raise SystemExit("extra copies do not match the bench's games")
+    return extra
+
+
 def dead_oof(games):
-    """Tag of the out-of-fold P(dead) for these games, computing it only if it is not cached."""
-    settings = dict(games=[m.name for m in games], params=deadball.MODEL_PARAMS,
-                    stride=deadball.TRAIN_STRIDE)
+    """Tag of the out-of-fold P(dead) for these games and their extra noise copies, computing it
+    only if it is not cached. The extra copies never train the dead-ball model."""
+    settings = dict(games=[m.name for m in games], extra=extra_names(games),
+                    params=deadball.MODEL_PARAMS, stride=deadball.TRAIN_STRIDE)
     tag = signature((features, touches, deadball), **settings)
-    paths = [deadball.oof_path(m.name, tag) for m in games]
+    paths = [deadball.oof_path(name, tag) for name in [m.name for m in games] + settings["extra"]]
     if _finished("pdead", tag, paths):
         print("P(dead) out-of-fold: cached @{}".format(tag), flush=True)
         return tag
     print("P(dead) out-of-fold @{}".format(tag), flush=True)
     table, _ = deadball.tables(games)
-    deadball.out_of_fold(games, table, tag)
+    deadball.out_of_fold(games, table, tag, extra_copies(games))
     _finish("pdead", tag, games, settings)
     return tag
 
@@ -101,7 +123,7 @@ def home_oof(games, dead_tag):
                     turns=possession.TURNS, segments=possession.SEGMENTS,
                     flight=possession.FLIGHT, pressure=possession.PRESSURE,
                     monotonic=possession.MONOTONIC, dense=possession.DENSE,
-                    dense_window=possession.DENSE_WINDOW)
+                    dense_window=possession.DENSE_WINDOW, extra=extra_names(games))
     tag = signature((features, touches, deadball, possession, segments, flight, pressure),
                     **settings)
     paths = [possession.oof_path(m.name, tag) for m in games]
@@ -109,8 +131,9 @@ def home_oof(games, dead_tag):
         print("P(home) out-of-fold: cached @{}".format(tag), flush=True)
         return tag
     print("P(home) out-of-fold @{}".format(tag), flush=True)
+    extra = possession.extra_rows(extra_copies(games), dead_tag)
     tables, names = possession.build_tables(games, dead_tag)
-    possession.cross_validate(games, tables, names, tag)
+    possession.cross_validate(games, tables, names, tag, extra)
     _finish("phome", tag, games, settings)
     return tag
 

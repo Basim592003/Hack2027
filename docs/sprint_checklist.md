@@ -482,8 +482,27 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     `data/cache/possession_v6_ac721327.csv`.
   - BAR-ATH aggregates, sanity only: 324 possessions of mean 11.0 s (D3: 323), 44.0% D across 106 stoppages, home
     60.5%. The higher switch cost did not thin BAR-ATH's possessions.
-- [ ] **E3 Extra seed for training only** (`bench.TRAIN_SEEDS = (0, 1)`); evaluate on seed 0 only. Keep full feature
+- [x] **E3 Extra seed for training only** (`bench.TRAIN_SEEDS = (0, 1)`); evaluate on seed 0 only. Keep full feature
   tables for seed 0 only, or memory reaches about 6 GB. Keep it if it gains ≥ 0.003, since it doubles run time.
+  - Done 2026-11-09 as `possession.EXTRA_SEEDS = (1,)`. Each bench copy gets a second noise copy at seed 1, with its
+    own ball smoothing, gap median and dropout draws, and it is used for training only:
+    - each fold leaves out the held-out game's seed-1 copies, and scoring stays on seed 0;
+    - their full tables are never held: `possession.extra_rows` keeps only their training rows;
+    - `deadball.out_of_fold(..., extra=...)` gives them P(dead) from the same fold models, and the dead-ball model
+      still trains on seed 0 only.
+
+    Peak memory 4.7 GB; `experiment run` takes 14 min cold.
+  - `run e3` (dead @293da1c2f2, home @a971a5303f) against `e2-t10`: **+0.0067 / +0.0092**, copies 9/14 and 4/6,
+    games 6/7 and 2/3. Last touch +0.0066 / +0.0080; by smoothing +0.007 / +0.012 / +0.004. It clears the gate
+    and E3's +0.003 bar. **Kept.**
+  - Decoder costs re-checked (`costgrid e3`): IDSSE's plateau is team 8–10 (0.684), and Metrica peaks at 12 (0.772,
+    against 0.770 at 10). Team 10 / dead 40 stays.
+  - **New baseline `e3`**: controlled 0.6840 / 0.7700, last touch 0.6280 / 0.7037.
+  - Submission regenerated twice, with identical SHA-256
+    `dd9339aeaaddabb226338a429eb12cb8e1c5f2a0ff351ab02091c7a8ac888f4b`, valid. `src.run` now takes 4.7 min with a
+    3.5 GB peak. The E2 file is kept as `data/cache/possession_e2_2cdb37ae.csv`.
+  - BAR-ATH aggregates, sanity only: 315 possessions of mean 11.3 s (E2: 324), 44.1% D across 106 stoppages, home
+    60.7%.
 - [ ] **E4 Classifier grid**, about 4 configurations per sitting and at most 6 in all: learning rate, leaves,
   min leaf, L2, max_features. Re-pick the decoder costs for each and prefer the plateau.
 

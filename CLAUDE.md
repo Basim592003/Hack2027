@@ -77,7 +77,7 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 .venv/bin/python -m src.decode               # joint decoder cost grid on the bench (needs both OOF caches)
 
 # A/B harness (src/experiment.py): every keep/drop decision since 2026-11-08
-.venv/bin/python -m src.experiment run NAME       # tagged OOF caches + joint decode, scored on last-touch AND controlled labels (~10 min cold, seconds cached)
+.venv/bin/python -m src.experiment run NAME       # tagged OOF caches + joint decode, scored on last-touch AND controlled labels (~15 min cold since E3, seconds cached)
 .venv/bin/python -m src.experiment compare A B    # B vs A per source: means, paired diffs, copies/games won, diagnostics
 .venv/bin/python -m src.experiment oracles        # headroom: true D, true team, perfect switch timing (also at events only)
 .venv/bin/python -m src.experiment eventgrid      # switch cost cheap near events vs constant (C2: dropped, ~30 s)

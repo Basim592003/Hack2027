@@ -8,7 +8,8 @@ What it does, in order -- every model is trained on the external games only, and
 chosen on them (RULES.md, clarification of 2026-11-03):
 
   1. the 10 labelled external games, each degraded at two live-ball dropout levels (src/noise.py,
-     fixed seeds), so 20 training games
+     fixed seeds), so 20 training games, plus the same again at another noise seed whose training
+     rows alone join the team model (src/possession.py, EXTRA_SEEDS)
   2. dead-ball model (src/deadball.py): out-of-fold P(dead) for every training game -- the team
      model's restart features need predictions their games were not trained on -- then one model
      on all 20 applied to BAR-ATH
@@ -48,8 +49,10 @@ def predict_bar(games):
     bar = bar_ath()
 
     print("step 2  dead ball", flush=True)
+    extra = bench_games(seeds=possession.EXTRA_SEEDS, convention=CONVENTION) \
+        if possession.EXTRA_SEEDS else []
     table, names = deadball.tables(games)
-    deadball.out_of_fold(games, table)
+    deadball.out_of_fold(games, table, extra=extra)
     dead_model = deadball.fit(table, [m.name for m in games])
     del table
     _, matrix = as_matrix(frame_features(bar), names)
@@ -57,9 +60,11 @@ def predict_bar(games):
     del matrix
 
     print("step 3  team in possession", flush=True)
+    rows = possession.extra_rows(extra)
+    del extra
     tables, team_names = possession.build_tables(games)
-    team_model = possession.fit(tables, [m.name for m in games], team_names)
-    del tables
+    team_model = possession.fit(tables, [m.name for m in games], team_names, rows, list(rows))
+    del tables, rows
     stoppages = deadball.decode(p_dead, bar.period, possession.DEAD_PENALTY)
     _, views = possession.both_views(bar, stoppages)
     p_home = possession.p_home(team_model, views)

@@ -165,8 +165,10 @@ def fit(table, names_in):
     return make_model().fit(x, y)
 
 
-def out_of_fold(games, table, tag=None):
-    """P(dead) for every game from a model that never saw that game, at any noise level."""
+def out_of_fold(games, table, tag=None, extra=()):
+    """P(dead) for every game from a model that never saw that game, at any noise level. `extra`
+    copies of the same games (another noise seed, src/possession.py's EXTRA_SEEDS) get theirs from
+    the same models, with features computed one copy at a time rather than held in `table`."""
     groups = sorted({clean_name(m) for m in games})
     p_dead = {}
     for held_out in groups:
@@ -178,6 +180,10 @@ def out_of_fold(games, table, tag=None):
                 path = oof_path(match.name, tag)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 np.save(path, p_dead[match.name].astype(np.float32))
+        for match in extra:
+            if clean_name(match) == held_out:
+                p_dead[match.name] = model.predict_proba(as_matrix(frame_features(match))[1])[:, 1]
+                np.save(oof_path(match.name, tag), p_dead[match.name].astype(np.float32))
         print("  fold {:<14} trained on {} games".format(held_out, len(train)), flush=True)
     return p_dead
 

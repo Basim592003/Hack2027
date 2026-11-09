@@ -77,6 +77,7 @@ PRESSURE = False         # the pressure family (sprint item D2: below the keep g
 MONOTONIC = False        # constrain the features below to push one way only (sprint item E1: lost, off)
 DENSE = True             # train on every live frame within DENSE_WINDOW of a change of team (E2)
 DENSE_WINDOW = 12        # frames
+EXTRA_SEEDS = (1,)       # more noise copies of the same games, for training only (sprint item E3)
 # Feature-name prefixes whose larger values can only make "this view's team has the ball" more (+1)
 # or less (-1) likely. The contrasts between segments and last_nearest, next_nearest and kick_prev
 # (whose sign depends on what happened in between) stay free.
@@ -397,9 +398,24 @@ def monotonic(names):
     return out
 
 
-def fit(tables, names_in, names):
-    """The team model on the given games; names are the feature names, in column order."""
+def extra_rows(games, dead_tag=None):
+    """{name: (x, y)}: the training rows alone of extra noise copies (EXTRA_SEEDS), built one copy at
+    a time so their full tables never sit in memory. Needs their out-of-fold P(dead)."""
+    rows = {}
+    for match in games:
+        dead = predicted_dead(match, deadball.oof_path(match.name, dead_tag))
+        _, views = both_views(match, dead)
+        rows[match.name] = training_rows({match.name: (views, match.labels, dead)}, [match.name])
+    return rows
+
+
+def fit(tables, names_in, names, extra=None, extra_in=()):
+    """The team model on the given games, plus the extra copies' rows named in extra_in; names are
+    the feature names, in column order."""
     x, y = training_rows(tables, names_in)
+    if extra_in:
+        x = np.concatenate([x] + [extra[name][0] for name in extra_in])
+        y = np.concatenate([y] + [extra[name][1] for name in extra_in])
     params = dict(MODEL_PARAMS, monotonic_cst=monotonic(names)) if MONOTONIC else MODEL_PARAMS
     return HistGradientBoostingClassifier(**params).fit(x, y)
 
@@ -447,11 +463,15 @@ def build_tables(games, dead_tag=None):
     return tables, names
 
 
-def cross_validate(games, tables, names, tag=None):
+def cross_validate(games, tables, names, tag=None, extra=None):
+    """Out-of-fold P(home), leaving one clean game out; extra is extra_rows' output, whose copies
+    of the other games join each fold's training rows."""
     groups = sorted({deadball.clean_name(m) for m in games})
     p = {}
     for held_out in groups:
-        model = fit(tables, [m.name for m in games if deadball.clean_name(m) != held_out], names)
+        extra_in = [name for name in (extra or {}) if name.split("~")[0] != held_out]
+        model = fit(tables, [m.name for m in games if deadball.clean_name(m) != held_out], names,
+                    extra, extra_in)
         for match in games:
             if deadball.clean_name(match) == held_out:
                 p[match.name] = p_home(model, tables[match.name][0])
