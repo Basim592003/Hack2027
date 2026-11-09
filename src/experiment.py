@@ -32,7 +32,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from . import controlled, deadball, decode, features, noise, possession, touches
+from . import controlled, deadball, decode, features, noise, possession, segments, touches
 from .bench import bench_games, source_of
 from .match import A, CACHE_DIR, D, H, X, Match
 
@@ -215,7 +215,9 @@ def load(name):
     return pd.read_csv(os.path.join(RESULTS_DIR, "{}.csv".format(name)))
 
 
-SMOOTHING_BANDS = (0.0, 4.0, 7.0, np.inf)   # frames; BAR-ATH's ball reads as about 7.5-8 (noise.py)
+# Frames. BAR-ATH's ball reads as sd 7.5-8 by its kink ratio (noise.py), but by its kick and event
+# rates it looks like IDSSE's sd 4-7 copies (segments.py). Both upper bands are BAR-ATH-like.
+SMOOTHING_BANDS = (0.0, 4.0, 7.0, np.inf)
 
 
 def ball_sd(copy):
@@ -233,13 +235,13 @@ def ball_sd(copy):
 
 def by_smoothing(both):
     """Controlled spellF1, B against A, by the ball smoothing each copy was made with (all sources
-    together: the BAR-ATH-like band holds few copies of each)."""
+    together: the upper bands hold few copies of each)."""
     sd = both["copy"].map(ball_sd)
     if not (sd > 0).any():
         return None
     diff = both["spellF1_ctl_b"] - both["spellF1_ctl_a"]
     band = pd.cut(sd, SMOOTHING_BANDS, right=False,
-                  labels=["sd<4", "sd 4-7", "sd>=7 (BAR-ATH-like)"])
+                  labels=["sd<4", "sd 4-7", "sd>=7"])
     grouped = diff.groupby(band, observed=True)
     return pd.DataFrame({"copies": grouped.size(), "diff": grouped.mean(),
                          "won": grouped.agg(lambda d: "{}/{}".format(int((d > 0).sum()), len(d)))})
@@ -306,24 +308,6 @@ HINT = 12                 # frames either side of a real in-play change where th
 HINT_COSTS = (0.5, 20.0)  # team cost near / away from those changes
 
 
-def candidate_events(match):
-    """Frames of the events item C1 formalises: kicks by either team, changes of the team alone
-    within the control radius, and ball-gap edges (as src/diag/bench_gaps_candidates.py)."""
-    bx = features.fill_short_gaps(match.bx, features.SHORT_BALL_GAP)
-    by = features.fill_short_gaps(match.by, features.SHORT_BALL_GAP)
-    dist = np.hypot(match.px - bx[:, None], match.py - by[:, None])
-    kick_frames, _, _ = touches.kicks(match.bx.astype(np.float64), match.by.astype(np.float64),
-                                      dist, match.team, match.fps)
-    close = [np.sum((dist < possession.CONTROL_RADIUS) & (match.team == k)[None, :], axis=1)
-             for k in (0, 1)]
-    exclusive = np.flatnonzero((close[0] > 0) != (close[1] > 0))
-    close_team = np.where(close[0][exclusive] > 0, 0, 1)
-    close_changes = exclusive[1:][close_team[1:] != close_team[:-1]]
-    seen = ~np.isnan(match.bx)
-    gap_edges = np.flatnonzero(np.diff(seen.astype(np.int8)) != 0) + 1
-    return np.unique(np.concatenate([kick_frames, close_changes, gap_edges]))
-
-
 def hint_costs(changes, n):
     """Per-frame team cost that makes switching cheap only within HINT frames of the given changes."""
     cost = np.full(n, HINT_COSTS[1])
@@ -335,8 +319,8 @@ def hint_costs(changes, n):
 def oracles(games=None):
     """Headroom, from the current out-of-fold predictions, against both label sets:
     true D, true team, perfect switch timing (cheap switches only near real in-play changes), and
-    perfect timing restricted to changes that have a candidate event within HINT frames -- the
-    ceiling for an event-gated switch cost."""
+    perfect timing restricted to changes that have an event (src/segments.py) within HINT frames --
+    the ceiling for an event-gated switch cost."""
     games = games if games is not None else bench_games()
     dead_tag = dead_oof(games)
     home_tag = home_oof(games, dead_tag)
@@ -352,17 +336,15 @@ def oracles(games=None):
         predicted = run_decoder(p_dead, p_home)
         identical += np.array_equal(predicted,
                                     run_decoder(p_dead, p_home, np.full(n, decode.TEAM_COST)))
-        events = candidate_events(match)
+        events, _, _ = segments.match_events(
+            match, deadball.decode(p_dead, match.period, possession.DEAD_PENALTY))
         for suffix, relabel in CONVENTIONS:
             truth = match.labels if relabel is None else relabel(match.labels)
             live = (truth == H) | (truth == A)
             true_dead = np.where(truth == D, 1.0, np.where(live, 0.0, p_dead))
             true_home = np.where(truth == H, 1.0, np.where(truth == A, 0.0, p_home))
             changes, _ = in_play_changes(truth, pm.valid_runs(truth))
-            at = np.searchsorted(events, changes)
-            after = events[np.clip(at, 0, len(events) - 1)]
-            before = events[np.clip(at - 1, 0, len(events) - 1)]
-            near_event = np.minimum(np.abs(after - changes), np.abs(before - changes)) <= HINT
+            near_event = segments.within(events, changes, HINT)
             cases = {
                 "1 as predicted": predicted,
                 "2 true D": run_decoder(true_dead, p_home),
@@ -381,7 +363,7 @@ def oracles(games=None):
     print("== spellF1 by case (rows: label set, case; columns: source)")
     print(table.groupby(["labels", "case", "source"]).spellF1.mean().unstack("source")
           .to_string(float_format="%.4f"))
-    print("== share of real in-play changes with a candidate event within {} frames".format(HINT))
+    print("== share of real in-play changes with an event within {} frames".format(HINT))
     print(table[table.case == "1 as predicted"].groupby(["labels", "source"]).events_near.mean()
           .unstack("source").to_string(float_format="%.3f"))
     return table

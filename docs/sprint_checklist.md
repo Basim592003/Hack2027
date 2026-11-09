@@ -38,9 +38,9 @@ pass all three:
 
 Hygiene items A5 and E1 are kept unless controlled spellF1 drops on either source, by ≥ 0.005 for A5 or ≥ 0.002 for E1.
 
-From B3 on, `compare` also prints controlled spellF1 by each copy's ball smoothing. The σ ≥ 7 band is the most
-BAR-ATH-like evidence, but it holds only 6 copies (5 IDSSE, 1 Metrica). Read it next to the per-source gate, not
-instead of it.
+From B3 on, `compare` also prints controlled spellF1 by each copy's ball smoothing. Both upper bands are BAR-ATH-like:
+BAR-ATH reads as σ ≈ 7.5–8 by its kink ratio (B2), but like IDSSE's σ 4–7 copies by its kick and event rates (C1).
+Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-source gate, not instead of it.
 
 ## A. Setup and baseline (target: Sun 8 Nov)
 - [x] **A1 Versioning.**
@@ -198,7 +198,7 @@ instead of it.
     59.5%.
 
 ## C. Hand-over evidence (target: Thu 12 Nov)
-- [ ] **C1 Event list.**
+- [x] **C1 Event list.**
   - New `src/segments.py`, `events(...)`: the sorted union of kicks, exclusive-close-team changes, raw ball-gap edges
     and predicted stoppage edges, merged within 3 frames. Kinds are flags; the team is the kick's, else the close
     change's, and −1 if they disagree.
@@ -206,13 +206,54 @@ instead of it.
     computed twice.
   - Port it from `src/diag/bench_gaps_candidates.py`. Record recall at ±6 and ±12 frames and events per minute on
     v5, plus BAR-ATH's events per minute as a sanity check.
+  - Done 2026-11-08:
+    - `segments.events(touch, ball_seen, dead, period)` returns (frames, kinds, teams). `match_events(match, dead)`
+      builds them from scratch, and `within(frames, targets, k)` tests nearness. Half edges count as stoppage
+      edges. A group never spans more than 3 frames, so duel flicker is cut rather than collapsed. Checked against a
+      plain-Python merge on two copies.
+    - `touch_context` also returns the kick and close-change frames and teams. This is output-neutral: under the new
+      tags (dead @5349f74532, home @d7a411c20b) both caches equal v5's on 20/20 copies, and `compare v5 c1` shows
+      zero difference. The model is unchanged, so the submission stays `ac12fe95…`.
+    - `experiment oracles` uses these events now. `src/diag/bench_gaps_candidates.py` is ported and removed.
+  - On v5, IDSSE / Metrica, with BAR-ATH in brackets as a sanity check:
+    - events per graded minute: 17.6 / 23.3 (17.4). Of these, kicks 8.8 / 14.5 (8.9), close changes 5.5 / 6.9
+      (5.8), gap edges 3.1 / 3.3 (2.7), stoppage edges 2.1 / 1.9 (2.0). 71% / 82% (76%) of events carry a team;
+    - ±6- and ±12-frame windows cover 14% / 19% (14%) and 25% / 33% (25%) of graded frames.
+  - Recall of real in-play changes under controlled labels (last-touch recall is within 0.04):
+
+    | within | any event | an event of the new team |
+    |---|---|---|
+    | ±6 frames | 0.577 / 0.772 | — |
+    | ±12 frames | 0.645 / 0.820 | 0.472 / 0.618 |
+
+    By kind, at ±12: kicks 0.46 / 0.55, close changes 0.38 / 0.50, gap edges 0.06 / 0.31, stoppage edges
+    0.01 / 0.03.
+  - This is below v4's 83% / 88% (A4), because v5's ball filter flattens kicks. On IDSSE copies, recall at ±12 is
+    0.83 / 0.65 / 0.50 at σ < 4 / 4–7 / ≥ 7, with 13.9 / 9.2 / 4.3 kicks a minute.
+  - **BAR-ATH's kick and event rates (8.9 and 17.4 a minute) match IDSSE's σ 4–7 copies (9.2 and 17.8), not its
+    σ ≥ 7 ones (4.3 and 13.0).** By this measure the σ ≥ 7 band over-smooths, so `compare` no longer labels it
+    BAR-ATH-like, and the reading note above is updated. B3 stands: v5 also won the σ 4–7 band 6/6 (+0.024).
+  - Gap edges: only Metrica's own ball gaps sit at hand-overs. On the clean games, IDSSE's ball is never missing in
+    play. Metrica's is missing on 11% of live frames, and its gap edges lie within ±12 frames of 29% of hand-overs,
+    against 5.5% for as many random live frames. v5's added gaps fall at random. How BAR-ATH's behave is unknown
+    (see the note under C5).
+  - Oracles re-run on v5 with these events, controlled spellF1:
+
+    | case | spellF1 | gain |
+    |---|---|---|
+    | as predicted | 0.6632 / 0.7300 | — |
+    | true D | 0.7067 / 0.8075 | +0.044 / +0.078 |
+    | true team | 0.9498 / 0.9203 | +0.287 / +0.190 |
+    | perfect switch timing | 0.7069 / 0.7588 | +0.044 / +0.029 |
+    | perfect timing, only at events (C2 ceiling) | 0.6882 / 0.7536 | +0.025 / +0.024 |
 - [ ] **C2 Event-gated switch cost.**
   - `decode.event_costs(frames, n, low, high, k)`.
   - Grid: low {2, 4, 6} × high {6, 10, 20} × k {6, 12}. Decode games in parallel with `ProcessPoolExecutor`, passing
     flags as explicit arguments, since macOS workers re-import modules with their defaults.
   - Keep it only if it beats a constant cost of 6 by ≥ 0.005 on both sources, with neighbouring cells close.
-  - Caveat: ±12-frame windows cover about 40% of live frames, so gating is only weakly selective. BAR-ATH has fewer
-    kicks and could end up with too few possessions; compare its events per minute and possession count (sanity only).
+  - Its ceiling on v5 is +0.025 / +0.024 (C1's oracles), so the bar of +0.005 asks for a fifth of it.
+  - Caveat: ±12-frame windows cover 25% / 33% of graded frames on v5, so the gate is selective, but it misses 35% / 18%
+    of changes. BAR-ATH's event rate matches IDSSE's (C1); still compare its possession count (sanity only).
   - If kept, `run.predict_bar` builds BAR-ATH's events and passes `team_costs`. The default `None` keeps the current
     submission byte-identical.
 - [ ] **C3 Pooled features (code only).**
@@ -223,13 +264,16 @@ instead of it.
     seen share, log segment length, and position in the segment. Event kinds are unsigned; the event team goes
     through `signed()`.
   - Always emit every feature name, NaN-filled, so sorted names match across games and BAR-ATH.
+  - `match_context` builds the events from its own touch signals with `segments.events`. Add `segments` to
+    `experiment.home_oof`'s signature modules and `SEGMENTS` to its settings, or P(home) caches go stale.
   - Checks:
     - signed features are exact negatives across the two views;
     - features are identical with `labels=None` (no leak).
 - [ ] **C4 Ceiling run** (diagnostic, never shipped). Pass the true controlled turnover frames as
   `build_tables(games, extra_events=...)`. If the gain is < 0.02, drop C5.
 - [ ] **C5 Pooled features, real run**, plus an ablation without kick events. Apply the gate. Compare segment-length
-  distributions with BAR-ATH's (aggregates only), and drop `seg_log_len` if they diverge.
+  distributions with BAR-ATH's (aggregates only), and drop `seg_log_len` if they diverge. Only Metrica's own ball
+  gaps sit at hand-overs (C1), so a gain on Metrica alone may come from gap-edge kinds that need not carry over.
 - [ ] **C6 Learned switch cost**, in a new `src/boundary.py`.
   - A HistGradientBoosting model for b_t = P(controlled in-play change within ±3 frames). Its features carry no team,
     so it needs no views:

@@ -119,7 +119,9 @@ def window_count(events, before, after):
 
 
 def touch_context(bx_raw, by_raw, dist, close, team, fps):
-    """Per-frame touch signals in team indices (0 home, 1 away, -1 none).
+    """Per-frame touch signals in team indices (0 home, 1 away, -1 none), and the events they are
+    made from for src/segments.py: kick_frames / kick_teams, and close_change_frames /
+    close_change_teams where the team alone within the control radius changes.
 
     bx_raw / by_raw are the tracked ball with its gaps left NaN; dist is the (T, P) player-ball
     distance; close is [home, away] players within the control radius per frame."""
@@ -129,6 +131,7 @@ def touch_context(bx_raw, by_raw, dist, close, team, fps):
     last, since, nxt, until, pos = last_and_next(frames, teams, n)
     back, ahead = streaks(teams)
     out = {
+        "kick_frames": frames, "kick_teams": teams,
         "kick_last": last, "kick_since": since, "kick_next": nxt, "kick_until": until,
         "kick_prev": _pick(teams, pos - 2, pos > 1, -1).astype(np.int8),
         "kick_last_streak": _pick(back, pos - 1, pos > 0, 0),
@@ -145,6 +148,8 @@ def touch_context(bx_raw, by_raw, dist, close, team, fps):
     close_team = np.where(close[0][close_frames] > 0, 0, 1).astype(np.int8)
     c_last, c_since, c_next, c_until, _ = last_and_next(close_frames, close_team, n)
     out.update(close_last=c_last, close_since=c_since, close_next=c_next, close_until=c_until)
+    change = np.flatnonzero(close_team[1:] != close_team[:-1]) + 1
+    out.update(close_change_frames=close_frames[change], close_change_teams=close_team[change])
     return out
 
 

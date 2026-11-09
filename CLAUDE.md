@@ -73,12 +73,15 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 .venv/bin/python -m src.possession --bar 6   # train on all external games, apply to BAR-ATH, aggregates only
 .venv/bin/python -m src.possession --no-touches   # the same without the touch features, for comparison
 .venv/bin/python -m src.touches              # kick agreement with external labels; kick rates on BAR-ATH (aggregates)
+.venv/bin/python -m src.segments             # event list: recall of real in-play changes on the bench; rates on BAR-ATH (aggregates)
 .venv/bin/python -m src.decode               # joint decoder cost grid on the bench (needs both OOF caches)
 
 # A/B harness (src/experiment.py): every keep/drop decision since 2026-11-08
 .venv/bin/python -m src.experiment run NAME       # tagged OOF caches + joint decode, scored on last-touch AND controlled labels (~10 min cold, seconds cached)
 .venv/bin/python -m src.experiment compare A B    # B vs A per source: means, paired diffs, copies/games won, diagnostics
 .venv/bin/python -m src.experiment oracles        # headroom: true D, true team, perfect switch timing (also at events only)
+# The OOF tags hash the source of features.py, touches.py, deadball.py and possession.py: any edit to them, even a
+# docstring, recomputes both OOF steps (~10 min) on the next run. Batch such edits before running.
 ```
 
 There is no unit-test suite. A change is verified in three ways:
@@ -135,6 +138,10 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
   Features are computed from each team's point of view, with the pitch oriented so "own" attacks +x. Training uses both views; inference averages them, so the output is symmetric and cannot learn "home usually has it".
   - `decode_teams` runs a 2-state Viterbi on each live stretch from step 2's D. Each stretch starts free, and a switch costs `penalty`.
   - Requires step 2's out-of-fold cache. Writes `phome_oof_<game>.npy` and `phome_BAR-ATH.npy`.
+- `src/segments.py` (since 2026-11-08, sprint item C1): the events where the ball can change hands. `events(touch, ball_seen, dead, period)` returns (frames, kinds, teams) for kicks, changes of the team alone within 1.5 m, raw ball-gap edges, and predicted stoppage or half edges, merged within 3 frames. Kinds are bit flags. The team is the one the kicks and close changes agree on, else −1.
+  - `touches.touch_context` returns the kick and close-change frames these are built from, so nothing is computed twice.
+  - `match_events(match, dead)` builds them from scratch, and `within(frames, targets, k)` tests nearness.
+  - `experiment oracles` uses them.
 
 ### Build order (plan)
 
