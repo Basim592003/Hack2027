@@ -503,8 +503,21 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     3.5 GB peak. The E2 file is kept as `data/cache/possession_e2_2cdb37ae.csv`.
   - BAR-ATH aggregates, sanity only: 315 possessions of mean 11.3 s (E2: 324), 44.1% D across 106 stoppages, home
     60.7%.
-- [ ] **E4 Classifier grid**, about 4 configurations per sitting and at most 6 in all: learning rate, leaves,
-  min leaf, L2, max_features. Re-pick the decoder costs for each and prefer the plateau.
+- [x] **E4 Classifier grid**, about 4 configurations per sitting and at most 6 in all: learning rate, leaves,
+  min leaf, L2, max_features. Re-pick the decoder costs for each and prefer the plateau. No change.
+  - Done 2026-11-09 on top of `e3`, with each setting's own `costgrid`. At team cost 10 against `e3`, controlled
+    spellF1:
+
+    | setting | IDSSE | Metrica | best costs |
+    |---|---|---|---|
+    | `max_leaf_nodes` 63 | +0.0046 (11/14) | −0.0004 (3/6) | plateau 8–12, flatter at 16–20 |
+    | learning rate 0.05, 600 trees | −0.0023 | −0.0045 | no better at any cost |
+    | `max_features` 0.5 | +0.0002 | −0.0071 | no better at any cost |
+    | `min_samples_leaf` 500 | −0.0026 | −0.0062 | no better at any cost |
+
+  - **None kept.** 63 leaves is the near-miss: it helps IDSSE consistently (6/7 games) but is flat on Metrica, just
+    short of the gate, and the best of four tries is weak evidence. `MODEL_PARAMS` is unchanged. Four of the six
+    allowed settings are used.
 
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [ ] **F1** Re-pick the decoder costs on the final model.
