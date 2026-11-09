@@ -343,7 +343,7 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     `experiment boundarygrid` stay for the record; `run.py` is unchanged.
 
 ## D. New evidence (target: Sat 14 Nov), each behind its own flag and gate
-- [ ] **D1 Flight target**, `src/flight.py`.
+- [x] **D1 Flight target**, `src/flight.py`. Dropped.
   - When the ball moves faster than 5 m/s, project b + v·τ for τ from 0.12 to 3 s, stopping at the lines. Process in
     chunks of 2,000 frames.
   - A player is in time if 0.7 + max(|p − (x + 0.7·v)| − 1, 0) / 5 ≤ τ.
@@ -351,6 +351,25 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     a "goes out first" flag.
   - NaN means not applicable; 3.5 s means nobody arrives in time. Never use infinity.
   - In ball gaps, carry the values from the last frame with a defined velocity (`lagged_delta` is NaN near gaps).
+  - Done 2026-11-09. `flight.arrivals` returns each team's arrival time and the time the ball goes out.
+    `possession.FLIGHT` adds 14 features per view (118 → 132):
+    - who arrives first (signed), the margin, both arrival times, an interception flag (first ≠ last kicker) and a
+      goes-out-first flag;
+    - first and margin pooled over the own, previous and next segments;
+    - first averaged over the past and next second.
+
+    Checked on two copies: exact negatives or swaps across the views, no change with the labels removed, other
+    features unchanged.
+  - Sanity, no labels: BAR-ATH matches IDSSE. The kicker's team gets there first on 74.7% of flights (73.5% /
+    77.6%), the ball is in flight on 42% of graded frames (48% / 56%), and nobody is in time on 44% (45% / 48%),
+    since a straight, non-slowing path overshoots long balls.
+  - `run d1` (home @ffa32656d6) against `c5`, controlled spellF1: **+0.0038 / −0.0006**, copies 10/14 and 3/6,
+    games 6/7 and 1/3. Last touch +0.0039 / −0.0003. By smoothing: +0.0037 / +0.0022 / +0.0010. The targets moved a
+    little: turnovers recovered +0.006 / +0.004, P(true team) in short spells +0.002 / +0.001.
+  - **Fails the gate** (below +0.005 on IDSSE, flat on Metrica at 3/6). **Dropped: `FLIGHT = False`**, and the
+    submission is unchanged. The likely reason the gain is small: the team model already sees the future (the next
+    kick's team, who is nearest when the ball reappears), so it knows who received a pass once anyone touches the
+    ball. The physics adds only where the reception is never seen. A decelerating ball was not tried.
 - [ ] **D2 Pressure**, `src/pressure.py`.
   - Chunks of 5,000 frames shaped (frames, home players, away players). Find slots with `np.flatnonzero(team == k)`;
     never assume slot order.

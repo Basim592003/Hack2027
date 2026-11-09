@@ -35,7 +35,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-from . import boundary, controlled, deadball, decode, features, noise, possession, segments, touches
+from . import (boundary, controlled, deadball, decode, features, flight, noise, possession,
+               segments, touches)
 from .bench import bench_games, source_of
 from .match import A, CACHE_DIR, D, H, X, Match
 
@@ -96,8 +97,9 @@ def home_oof(games, dead_tag):
     """Tag of the out-of-fold P(home), on top of the given P(dead) caches."""
     settings = dict(dead=dead_tag, games=[m.name for m in games], params=possession.MODEL_PARAMS,
                     stride=possession.TRAIN_STRIDE, touches=possession.TOUCHES,
-                    turns=possession.TURNS, segments=possession.SEGMENTS)
-    tag = signature((features, touches, deadball, possession, segments), **settings)
+                    turns=possession.TURNS, segments=possession.SEGMENTS,
+                    flight=possession.FLIGHT)
+    tag = signature((features, touches, deadball, possession, segments, flight), **settings)
     paths = [possession.oof_path(m.name, tag) for m in games]
     if _finished("phome", tag, paths):
         print("P(home) out-of-fold: cached @{}".format(tag), flush=True)

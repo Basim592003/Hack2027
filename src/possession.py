@@ -21,6 +21,9 @@ A gradient-boosted classifier trained only on the labelled external games (RULES
             around the frame (src/segments.py) and over the stretches before and after it, with
             their contrasts, the stretch's length and the frame's place in it, and the kinds and
             team of the events that bound it.
+  flight    behind FLIGHT: while the ball travels, which team gets to it first and by how much
+            (src/flight.py), whether that is the kicker's team, whether it goes out first; also
+            pooled over the segments and averaged over the past and next second.
 
 Every feature is computed from one team's point of view ("own" vs "opp", pitch oriented so own
 attacks +x) and the model is trained on both teams' views of every frame, so it cannot learn that
@@ -40,7 +43,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from . import controlled, deadball, segments, touches
+from . import controlled, deadball, flight, segments, touches
 from .bench import bench_games, source_of
 from .features import (CONTEXT_CAP, SHORT_BALL_GAP, ball_geometry, fill_short_gaps, nan_row_mean,
                        rolling_mean, team_sides)
@@ -66,6 +69,7 @@ MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samp
 TOUCHES = True           # the touch feature family; --no-touches turns it off for comparison
 TURNS = True             # change in each team's forward speed; --no-turns turns it off
 SEGMENTS = True          # the segment family (sprint items C3-C5)
+FLIGHT = False           # the flight family (sprint item D1: below the keep gate, off)
 
 
 def lagged_delta(values, lag):
@@ -161,11 +165,13 @@ def match_context(match, dead):
     touch = touches.touch_context(match.bx, match.by, dist, close, match.team, fps) \
         if TOUCHES or SEGMENTS else None
     events = segments.events(touch, ~np.isnan(match.bx), dead, match.period) if SEGMENTS else None
+    arrivals = flight.arrivals(bx, by, bvx, bvy, px, py, pvx, pvy, match.team, match.pitch) \
+        if FLIGHT else None
     return dict(bx=bx, by=by, px=px, py=py, seen=seen, near=near, close=close, comove=comove,
                 nearest_team=nearest_team, sides=sides, rule=rule, near_restart=near_restart,
                 since_restart=since_restart, last=last, following=following,
                 touch=touch if TOUCHES else None, events=events,
-                layout=segments.layout(*events, seen) if SEGMENTS else None)
+                layout=segments.layout(*events, seen) if SEGMENTS else None, flight=arrivals)
 
 
 def view_features(match, ctx, me):
@@ -273,6 +279,29 @@ def view_features(match, ctx, me):
             feats["seg_{}_to_next".format(name)] = after - own
         for name, values in ctx["layout"].items():
             feats[name] = signed(values) if name.endswith("_team") else values
+
+    # -- flight ----------------------------------------------------------------------------
+    if ctx["flight"] is not None:
+        times, out = ctx["flight"]
+        own_time, opp_time = times[:, me], times[:, opp]
+        first = np.sign(opp_time - own_time)        # +1 own team first, 0 tie, NaN not in flight
+        feats["flight_first"] = first
+        feats["flight_margin"] = opp_time - own_time
+        feats["flight_own_time"], feats["flight_opp_time"] = own_time, opp_time
+        feats["flight_out_first"] = np.where(np.isnan(out), np.nan,
+                                             out < np.fmin(own_time, opp_time))
+        if touch is not None:
+            kicker = signed(touch["kick_last"])
+            feats["flight_intercept"] = np.where(np.isnan(first) | np.isnan(kicker) | (first == 0),
+                                                 np.nan, first != kicker)
+        for tag, before, after in (("past1", 25, 0), ("next1", 0, 25)):
+            feats["flight_first_" + tag] = rolling_mean(first, before, after)
+        if ctx["events"] is not None:
+            for name in ("flight_first", "flight_margin"):
+                own, before, after = segments.pool(feats[name], ctx["events"][0])
+                feats["seg_" + name] = own
+                feats["seg_{}_prev".format(name)] = before
+                feats["seg_{}_next".format(name)] = after
 
     return {k: np.asarray(v, dtype=np.float32) for k, v in feats.items()}
 
