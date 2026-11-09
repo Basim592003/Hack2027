@@ -101,6 +101,46 @@ def within(frames, targets, k):
     return (at < len(frames)) & (frames[np.minimum(at, len(frames) - 1)] <= targets + k)
 
 
+# -- segments: the stretches between consecutive events --------------------------------------------
+# Segment i runs from event i - 1 (or the first frame) up to, not including, event i (or the end),
+# so a frame's segment is the number of events at or before it.
+
+def pool(values, frames):
+    """NaN-aware means of values over each frame's own segment and over the previous and the next
+    one (NaN where there is none or it has no values), by cumulative sums as features.rolling_mean."""
+    n = len(values)
+    valid = ~np.isnan(values)
+    sums = np.concatenate(([0.0], np.cumsum(np.where(valid, values, 0.0), dtype=np.float64)))
+    counts = np.concatenate(([0], np.cumsum(valid)))
+    bounds = np.concatenate(([0], frames, [n]))
+    count = counts[bounds[1:]] - counts[bounds[:-1]]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = np.where(count > 0, (sums[bounds[1:]] - sums[bounds[:-1]]) / count, np.nan)
+    means = np.concatenate(([np.nan], means, [np.nan]))
+    seg = np.searchsorted(frames, np.arange(n), side="right") + 1
+    return means[seg], means[seg - 1], means[seg + 1]
+
+
+def layout(frames, kinds, teams, seen):
+    """Per frame, about its own segment and the same from both teams' points of view: log length,
+    position in it (0 at its first frame), share of frames with the ball seen, and the kinds (0/1)
+    and team (-1 unknown) of the events that start and end it; 0 / -1 where there is no such event."""
+    n = len(seen)
+    seg = np.searchsorted(frames, np.arange(n), side="right")
+    starts = np.concatenate(([0], frames))
+    length = (np.concatenate((frames, [n])) - starts)[seg]
+    out = {"seg_log_len": np.log(length), "seg_pos": (np.arange(n) - starts[seg]) / length,
+           "seg_seen": pool(seen.astype(np.float64), frames)[0]}
+    last = len(frames) - 1
+    for edge, has, at in (("start", seg > 0, np.maximum(seg - 1, 0)),
+                          ("end", seg <= last, np.minimum(seg, last))):
+        for name, flag in KINDS:
+            out["seg_{}_{}".format(edge, name)] = np.where(has, (kinds[at] & flag) > 0, False) \
+                .astype(np.float64)
+        out["seg_{}_team".format(edge)] = np.where(has, teams[at], -1).astype(np.int8)
+    return out
+
+
 if __name__ == "__main__":
     import os
 

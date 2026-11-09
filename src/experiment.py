@@ -95,8 +95,8 @@ def home_oof(games, dead_tag):
     """Tag of the out-of-fold P(home), on top of the given P(dead) caches."""
     settings = dict(dead=dead_tag, games=[m.name for m in games], params=possession.MODEL_PARAMS,
                     stride=possession.TRAIN_STRIDE, touches=possession.TOUCHES,
-                    turns=possession.TURNS)
-    tag = signature((features, touches, deadball, possession), **settings)
+                    turns=possession.TURNS, segments=possession.SEGMENTS)
+    tag = signature((features, touches, deadball, possession, segments), **settings)
     paths = [possession.oof_path(m.name, tag) for m in games]
     if _finished("phome", tag, paths):
         print("P(home) out-of-fold: cached @{}".format(tag), flush=True)

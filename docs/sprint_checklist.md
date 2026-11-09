@@ -265,7 +265,7 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
   - Events come every 2.6–3.4 s, and most are not hand-overs. P(home) already moves where the ball really changes
     hands (A3: matched changes are on time), so the gate only adds false switches. **Dropped.** `decode.event_costs`
     and `experiment eventgrid` stay, to re-check once C5 changes P(home).
-- [ ] **C3 Pooled features (code only).**
+- [x] **C3 Pooled features (code only).**
   - `segments.pool(values, events)`: means over the frame's own, previous and next segments, by cumulative sums
     (as in `features.rolling_mean`).
   - In `src/possession.py`, behind a `SEGMENTS` flag, `view_features` pools per view the signals it already has:
@@ -278,6 +278,18 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
   - Checks:
     - signed features are exact negatives across the two views;
     - features are identical with `labels=None` (no leak).
+  - Done 2026-11-08, behind `possession.SEGMENTS = False`, so nothing shipped changes:
+    - `segments.pool(values, frames)` returns the own, previous and next segment means. `segments.layout(...)` gives
+      the per-frame segment facts that are the same from both sides: log length, position, ball-seen share, and the
+      kinds and team of the bounding events.
+    - That adds 33 features per view (85 → 118): own, previous and next means and both contrasts for `nearest`,
+      `control`, `d_diff` and `comove` (opp − own), plus seen share, log length, position, 4 + 4 kind flags and the
+      signed start and end teams. Building the views still takes 0.6 s a copy.
+    - Checked on one IDSSE and one Metrica copy: `pool` equals brute force, signed features are exact negatives across
+      the views and unsigned ones identical, the 85 existing features are unchanged, and views are identical with
+      `labels=None`.
+    - The own-segment means are NaN on 32–43% of frames, because ball gaps are events, so a missing-ball stretch is
+      its own segment. The neighbouring means are NaN on only 16–22%.
 - [ ] **C4 Ceiling run** (diagnostic, never shipped). Pass the true controlled turnover frames as
   `build_tables(games, extra_events=...)`. If the gain is < 0.02, drop C5.
 - [ ] **C5 Pooled features, real run**, plus an ablation without kick events. Apply the gate. Compare segment-length

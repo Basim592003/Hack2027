@@ -17,6 +17,10 @@ A gradient-boosted classifier trained only on the labelled external games (RULES
   touches   the team of the last and next kick of the ball, kicks in a row by one team, and the
             last and next team alone within CONTROL_RADIUS (src/touches.py). Sharp where the
             averages above are blurred: at the moment the ball changes hands.
+  segments  behind SEGMENTS: the ball signals above pooled over the stretch between the events
+            around the frame (src/segments.py) and over the stretches before and after it, with
+            their contrasts, the stretch's length and the frame's place in it, and the kinds and
+            team of the events that bound it.
 
 Every feature is computed from one team's point of view ("own" vs "opp", pitch oriented so own
 attacks +x) and the model is trained on both teams' views of every frame, so it cannot learn that
@@ -36,7 +40,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from . import controlled, deadball, touches
+from . import controlled, deadball, segments, touches
 from .bench import bench_games, source_of
 from .features import (CONTEXT_CAP, SHORT_BALL_GAP, ball_geometry, fill_short_gaps, nan_row_mean,
                        rolling_mean, team_sides)
@@ -61,6 +65,7 @@ MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samp
                     l2_regularization=1.0, early_stopping=False, random_state=0)
 TOUCHES = True           # the touch feature family; --no-touches turns it off for comparison
 TURNS = True             # change in each team's forward speed; --no-turns turns it off
+SEGMENTS = False         # the segment family (sprint items C3-C5)
 
 
 def lagged_delta(values, lag):
@@ -154,10 +159,13 @@ def match_context(match, dead):
     last = np.maximum.accumulate(np.where(seen, index, -1))
     following = np.minimum.accumulate(np.where(seen, index, match.n_frames)[::-1])[::-1]
     touch = touches.touch_context(match.bx, match.by, dist, close, match.team, fps) \
-        if TOUCHES else None
+        if TOUCHES or SEGMENTS else None
+    events = segments.events(touch, ~np.isnan(match.bx), dead, match.period) if SEGMENTS else None
     return dict(bx=bx, by=by, px=px, py=py, seen=seen, near=near, close=close, comove=comove,
                 nearest_team=nearest_team, sides=sides, rule=rule, near_restart=near_restart,
-                since_restart=since_restart, last=last, following=following, touch=touch)
+                since_restart=since_restart, last=last, following=following,
+                touch=touch if TOUCHES else None, events=events,
+                layout=segments.layout(*events, seen) if SEGMENTS else None)
 
 
 def view_features(match, ctx, me):
@@ -250,6 +258,21 @@ def view_features(match, ctx, me):
         for name, k in (("own", me), ("opp", opp)):
             feats["kicks_{}_past2".format(name)] = touch["kicks_past_{}".format(k)]
             feats["kicks_{}_next2".format(name)] = touch["kicks_next_{}".format(k)]
+
+    # -- segments --------------------------------------------------------------------------
+    if ctx["events"] is not None:
+        frames = ctx["events"][0]
+        for name, values in (("nearest", nearest), ("control", control),
+                             ("d_diff", feats["d_diff"]),
+                             ("comove", ctx["comove"][opp] - ctx["comove"][me])):
+            own, before, after = segments.pool(values, frames)
+            feats["seg_" + name] = own
+            feats["seg_{}_prev".format(name)] = before
+            feats["seg_{}_next".format(name)] = after
+            feats["seg_{}_from_prev".format(name)] = own - before
+            feats["seg_{}_to_next".format(name)] = after - own
+        for name, values in ctx["layout"].items():
+            feats[name] = signed(values) if name.endswith("_team") else values
 
     return {k: np.asarray(v, dtype=np.float32) for k, v in feats.items()}
 

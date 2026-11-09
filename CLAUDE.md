@@ -80,8 +80,8 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 .venv/bin/python -m src.experiment run NAME       # tagged OOF caches + joint decode, scored on last-touch AND controlled labels (~10 min cold, seconds cached)
 .venv/bin/python -m src.experiment compare A B    # B vs A per source: means, paired diffs, copies/games won, diagnostics
 .venv/bin/python -m src.experiment oracles        # headroom: true D, true team, perfect switch timing (also at events only)
-# The OOF tags hash the source of features.py, touches.py, deadball.py and possession.py: any edit to them, even a
-# docstring, recomputes both OOF steps (~10 min) on the next run. Batch such edits before running.
+# The OOF tags hash the source of features.py, touches.py, deadball.py, possession.py and (P(home) only) segments.py:
+# any edit to them, even a docstring, recomputes the OOF steps (~10 min) on the next run. Batch such edits first.
 ```
 
 There is no unit-test suite. A change is verified in three ways:
