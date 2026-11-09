@@ -172,6 +172,16 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
    - The rebuild from an empty cache is byte-identical (`22e4fd4c…4c35b4d`, ~5 min). The previous CSV is kept as `data/cache/possession_noise_v3_f4c9fc60.csv`.
    - BAR-ATH now gets 416 possessions of mean 9.8 s, 35.8% D across 125 stoppages, and home 57.0% of live time.
    - The rebuild from an empty cache is byte-identical (`f4c9fc60…f422`, ~5 min). The previous CSV is `e5a8c7b9…`.
+8. The sprint (2026-11-08/09, `docs/sprint_checklist.md`, which records every comparison). **Current submission: SHA-256 `dd9339ae…8f4b`**, rebuilt twice from an empty cache (~6 min) and validated.
+   - Kept:
+     - noise v5's ball filter;
+     - segment features (C5);
+     - the Metrica unannotated-stoppage fix and noise v6 (D3);
+     - dense training near changes with team cost 10 (E2);
+     - a second noise seed for training (E3).
+   - Bench, controlled spellF1, IDSSE / Metrica: 0.684 / 0.770; last touch 0.628 / 0.704.
+   - BAR-ATH: 315 possessions of mean 11.3 s, 44.1% D across 106 stoppages, home 60.7%.
+   - Everything else tried in the sprint lost or tied and is off behind flags. `docs/technical_document.md` is updated to this state.
 
 ## What the metric rewards
 

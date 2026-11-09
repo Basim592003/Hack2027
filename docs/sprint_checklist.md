@@ -543,7 +543,18 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     validator. The warm cache is restored.
   - Alignment check on the public 5 minutes, used for nothing else: 17 predicted possessions against 17 real, so
     frames and format line up.
-- [ ] **F3** Update `docs/technical_document.md` §1 and §3–7, CLAUDE.md, and the docstrings of the modules that changed.
+- [x] **F3** Update `docs/technical_document.md` §1 and §3–7, CLAUDE.md, and the docstrings of the modules that changed.
+  - Done 2026-11-09. In the tech doc:
+    - §1 describes 118 team signals in five families, the training rows and team cost 10;
+    - §3 adds the Metrica label fix, the ball filter and the second training copy;
+    - §5 scores both conventions, with the final table, how the sprint's steps added up, the carry-over checks and
+      everything tried and dropped;
+    - §6 and §7 give the current limits, hash and aggregates.
+
+    CLAUDE.md gains a sprint entry in its build order. The changed modules' docstrings were updated item by item.
+  - **Still for the user:** fill in the team name (the tech doc's header and §7 use `[team name]` / `[team_name]`).
+    Send the organiser question in `docs/organiser_question.md`: the tech doc says "We have asked the organisers",
+    so that sentence must be true before submitting.
 - [ ] **F4** The user submits the CSV, the repo link and the tech doc through the form.
 
 ## Out of scope
