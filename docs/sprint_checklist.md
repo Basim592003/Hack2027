@@ -370,7 +370,7 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     submission is unchanged. The likely reason the gain is small: the team model already sees the future (the next
     kick's team, who is nearest when the ball reappears), so it knows who received a pass once anyone touches the
     ball. The physics adds only where the reception is never seen. A decelerating ball was not tried.
-- [ ] **D2 Pressure**, `src/pressure.py`.
+- [x] **D2 Pressure**, `src/pressure.py`. Dropped.
   - Chunks of 5,000 frames shaped (frames, home players, away players). Find slots with `np.flatnonzero(team == k)`;
     never assume slot order.
   - Closing speed is −Δx·Δv / max(d, 0.5), over opponents within 10 m.
@@ -380,6 +380,24 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     - each team's divergence (2×2 least squares in closed form, small ridge, at least 4 players);
     - 1 s and 4 s averages.
   - Watch team accuracy on live frames with the ball missing.
+  - Done 2026-11-09. `pressure.pressure` and `pressure.divergence` feed `possession.PRESSURE`, which adds 14 features
+    per view (118 → 132):
+    - each side's largest pressure and the gap between them;
+    - the signed most-pressed team, and opponents within 5 m of that player;
+    - each team's divergence and the gap;
+    - 1 s and 4 s averages of the three signed signals.
+
+    The same view, leak and unchanged-feature checks pass.
+  - Sanity, no labels: the most-pressed player's team is the one nearest the ball on 56.8% of BAR-ATH's frames,
+    against 54.4% / 55.9% on the bench. So it carries over, but it is weak. Median top pressure is 3.2 m/s against
+    3.1 / 3.1.
+  - `run d2` (home @aca631fe34) against `c5`, controlled spellF1: **+0.0013 / −0.0024**, copies 10/14 and 3/6. Last
+    touch +0.0019 / −0.0010. On live frames with the ball missing, P(home) accuracy rises +0.003 / +0.001.
+    **Fails the gate. Dropped: `PRESSURE = False`**, and the submission is unchanged.
+  - **Found on the way: with the ball missing, the dead-ball call goes wrong, not the team.** On live, ball-missing
+    frames the decoded labels are right 0.74 / 0.44 of the time, while P(home) has the right team on 0.86 / 0.95.
+    The difference is frames decoded as D: about 12% on IDSSE and 56% on Metrica. That fits the true-D oracle,
+    +0.044 / +0.078 (C1), the largest single headroom after the team itself.
 
 ## E. Training recipe (in spare sitting time during C–D; finish by Sun 15 Nov)
 - [ ] **E1 Monotonic constraints.** Pass feature names into `possession.fit`, and assert every pattern matches at

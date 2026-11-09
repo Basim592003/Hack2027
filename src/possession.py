@@ -24,6 +24,9 @@ A gradient-boosted classifier trained only on the labelled external games (RULES
   flight    behind FLIGHT: while the ball travels, which team gets to it first and by how much
             (src/flight.py), whether that is the kicker's team, whether it goes out first; also
             pooled over the segments and averaged over the past and next second.
+  pressure  behind PRESSURE: each team's most closed-down player and the team of the most closed-down
+            one overall, and whether each team is spreading out or contracting (src/pressure.py);
+            with 1 s and 4 s averages. Needs no ball.
 
 Every feature is computed from one team's point of view ("own" vs "opp", pitch oriented so own
 attacks +x) and the model is trained on both teams' views of every frame, so it cannot learn that
@@ -43,7 +46,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from . import controlled, deadball, flight, segments, touches
+from . import controlled, deadball, flight, pressure, segments, touches
 from .bench import bench_games, source_of
 from .features import (CONTEXT_CAP, SHORT_BALL_GAP, ball_geometry, fill_short_gaps, nan_row_mean,
                        rolling_mean, team_sides)
@@ -70,6 +73,7 @@ TOUCHES = True           # the touch feature family; --no-touches turns it off f
 TURNS = True             # change in each team's forward speed; --no-turns turns it off
 SEGMENTS = True          # the segment family (sprint items C3-C5)
 FLIGHT = False           # the flight family (sprint item D1: below the keep gate, off)
+PRESSURE = False         # the pressure family (sprint item D2: below the keep gate, off)
 
 
 def lagged_delta(values, lag):
@@ -167,11 +171,14 @@ def match_context(match, dead):
     events = segments.events(touch, ~np.isnan(match.bx), dead, match.period) if SEGMENTS else None
     arrivals = flight.arrivals(bx, by, bvx, bvy, px, py, pvx, pvy, match.team, match.pitch) \
         if FLIGHT else None
+    pressed = pressure.pressure(px, py, pvx, pvy, match.team) \
+        + (pressure.divergence(px, py, pvx, pvy, match.team),) if PRESSURE else None
     return dict(bx=bx, by=by, px=px, py=py, seen=seen, near=near, close=close, comove=comove,
                 nearest_team=nearest_team, sides=sides, rule=rule, near_restart=near_restart,
                 since_restart=since_restart, last=last, following=following,
                 touch=touch if TOUCHES else None, events=events,
-                layout=segments.layout(*events, seen) if SEGMENTS else None, flight=arrivals)
+                layout=segments.layout(*events, seen) if SEGMENTS else None, flight=arrivals,
+                pressure=pressed)
 
 
 def view_features(match, ctx, me):
@@ -302,6 +309,19 @@ def view_features(match, ctx, me):
                 feats["seg_" + name] = own
                 feats["seg_{}_prev".format(name)] = before
                 feats["seg_{}_next".format(name)] = after
+
+    # -- pressure --------------------------------------------------------------------------
+    if ctx["pressure"] is not None:
+        most, most_team, near_most, div = ctx["pressure"]
+        feats["press_own"], feats["press_opp"] = most[:, me], most[:, opp]
+        feats["press_gap"] = most[:, me] - most[:, opp]
+        feats["press_most"] = signed(most_team)
+        feats["press_most_near"] = near_most
+        feats["div_own"], feats["div_opp"] = div[:, me], div[:, opp]
+        feats["div_gap"] = div[:, me] - div[:, opp]
+        for tag, before, after in (("c1", 12, 12), ("c4", 50, 50)):
+            for name in ("press_gap", "press_most", "div_gap"):
+                feats["{}_{}".format(name, tag)] = rolling_mean(feats[name], before, after)
 
     return {k: np.asarray(v, dtype=np.float32) for k, v in feats.items()}
 
