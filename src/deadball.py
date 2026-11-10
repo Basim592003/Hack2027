@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from . import controlled
+from . import controlled, segments
 from .bench import bench_games, nearest_team, source_of
 from .features import as_matrix, frame_features
 from .match import CACHE_DIR, D, H, X
@@ -31,6 +31,9 @@ sys.path.insert(0, os.path.join(ROOT, "starter"))
 import possession_metrics as pm  # noqa: E402
 
 TRAIN_STRIDE = 5   # consecutive frames are near-duplicates; every 5th keeps the information
+DENSE = False      # sprint item G1: also every labelled frame within DENSE_WINDOW of a stoppage edge
+                   # (lost on the bench, off)
+DENSE_WINDOW = 12
 MODEL_PARAMS = dict(max_iter=300, learning_rate=0.1, max_leaf_nodes=31, min_samples_leaf=200,
                     l2_regularization=1.0, random_state=0)
 PENALTIES = (0.0, 5.0, 10.0, 20.0, 40.0, 80.0)
@@ -152,10 +155,18 @@ def tables(games):
 
 
 def training_rows(table, names_in):
+    """Every TRAIN_STRIDE-th labelled frame, and with DENSE every labelled frame within
+    DENSE_WINDOW of the start or end of a stoppage. y = 'dead'."""
     xs, ys = [], []
     for name in names_in:
         matrix, labels = table[name]
-        keep = np.flatnonzero(labels != X)[::TRAIN_STRIDE]
+        graded = labels != X
+        keep = np.flatnonzero(graded)[::TRAIN_STRIDE]
+        if DENSE:
+            dead = labels == D
+            edges = np.flatnonzero(graded[1:] & graded[:-1] & (dead[1:] != dead[:-1])) + 1
+            near = segments.within(edges, np.arange(len(labels)), DENSE_WINDOW) & graded
+            keep = np.union1d(keep, np.flatnonzero(near))
         xs.append(matrix[keep])
         ys.append(labels[keep] == D)
     return np.concatenate(xs), np.concatenate(ys)

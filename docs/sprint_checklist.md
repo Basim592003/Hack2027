@@ -532,6 +532,46 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
     cost grid is no better (team 10: 0.6833 / 0.7670; 12: 0.6811 / 0.7689). **Dropped: `TRAIN_EXTRA = False`**,
     which trains exactly E3's models.
 
+## G. Second round (added 2026-11-10; new work still stops on 15 Nov)
+Added once A–E were done. What the current model (E3) leaves, from `experiment oracles` with one part made perfect and
+the rest as predicted, last-touch spellF1, IDSSE / Metrica:
+
+| part made perfect | gain |
+|---|---|
+| team | +0.318 / +0.208 |
+| dead ball | +0.036 / +0.047 |
+| switch timing | +0.053 / +0.022 (controlled: +0.052 / +0.018) |
+
+The dead-ball model's inputs have not changed since before the sprint, so it goes first. Same keep gate. If any G item
+is kept, redo F1–F3 on the new model before 17 Nov. If none is, still rerun F2's rebuild on the final commit, since the
+code behind the flags has changed. **User, today:** send `docs/organiser_question.md`. Its question 3 decides how the
+external games are relabelled.
+
+- [x] **G1 Dense rows for the dead-ball model.** In `deadball.training_rows`, also take every labelled frame within ±12
+  frames of a stoppage's start or end, as E2 did for the team model (+0.0065 / +0.0069). One window, set in advance
+  (E2's). If it is a near-miss, check `costgrid` before deciding, as in E2. Dropped.
+  - Done 2026-11-10 as `deadball.DENSE`. It adds 14% rows per copy, and the dead share of training rows goes
+    0.448 → 0.455 (IDSSE) and 0.375 → 0.390 (Metrica). The P(dead) tag now also hashes `segments.py`.
+  - `run g1` (dead @1086ecee9d, home @defae7466d) against `e3`, controlled spellF1: **−0.0018 / −0.0015**, copies
+    6/14 and 4/6, games 2/7 and 1/3. Last touch −0.0004 / +0.0005.
+  - Its own cost grid is no better: the best cell is team 12 / dead 40 at 0.6799 / 0.7723, against E3's 0.6840 /
+    0.7700 at 10 / 40. **Dropped: `DENSE = False`**, which trains exactly E3's dead-ball model.
+- [ ] **G2 Learning curve** (diagnostic; second because asking for external data takes time). `experiment
+  learncurve`: per fold, train the team model on two random subsets each of 3 and 6 of the other clean games (both
+  sources in each) and on all 9, with the dead ball as is, and score the held-out copies. Noise copies stopped helping
+  after one (E5), so only new games can add data. If 6 → 9 adds ≥ 0.01 on either source, bring some in:
+  - PFF's World Cup 2022 games: 64, with human-tagged events, free on request;
+  - SkillCorner's open A-League games: open, but 10 fps and machine-made possession labels.
+
+  Both are broadcast tracking and take 3–4 sittings, so start one only if access is quick.
+- [ ] **G3 Kick and segment signals for the dead-ball model.** A restart is a kick after a still ball, and the dead-ball
+  model sees neither kicks nor segments. Add the time since and until the last kick and its strength
+  (`src/touches.py`), and the ball's speed and seen share pooled over the segment between events (`src/segments.py`,
+  without the stoppage edges, which come from this model).
+- [ ] **G4 Second-stage team model** (stacking, out of scope until now). A second classifier reads the first one's
+  out-of-fold P(home): its log-odds at ±1, 2, 4 and 8 s and pooled over the segment and its neighbours. Folds are
+  nested, so no copy is scored by a model whose inputs saw it. C6, a cousin for switch timing, was dropped.
+
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [x] **F1** Re-pick the decoder costs on the final model.
   - Done 2026-11-09 with `costgrid e3`: IDSSE's plateau is team 8–10 and Metrica's best is 12, within 0.002 of 10.
@@ -558,4 +598,4 @@ Each band holds only 6 copies (5 IDSSE, 1 Metrica). Read them next to the per-so
 - [ ] **F4** The user submits the CSV, the repo link and the tech doc through the form.
 
 ## Out of scope
-GRU / 1D-CNN, stand-alone stacking, Smart Tagging priors, and anything tuned on the public window.
+GRU / 1D-CNN, Smart Tagging priors, and anything tuned on the public window. Stacking was out of scope until G4.

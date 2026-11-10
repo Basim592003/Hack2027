@@ -10,6 +10,7 @@ whatever the code and flags are when it runs:
     python -m src.experiment eventgrid       # team cost cheap near events (decode.event_costs) vs constant
     python -m src.experiment boundarygrid    # learned team cost (src/boundary.py) vs constant
     python -m src.experiment costgrid NAME   # constant team / dead costs on a saved run's predictions
+    python -m src.experiment learncurve      # team model on 3, 6 and all 9 other games
 
 Scoring. BAR-ATH's answer key counts *controlled* possession (CHALLENGE.md), and the external labels give
 it to the last toucher, so every decode is scored against both: the labels as they are ("lt") and
@@ -104,8 +105,9 @@ def dead_oof(games):
     only if it is not cached. The extra copies never train the dead-ball model."""
     settings = dict(games=[m.name for m in games], extra=extra_names(games),
                     params=deadball.MODEL_PARAMS, stride=deadball.TRAIN_STRIDE,
-                    train_extra=deadball.TRAIN_EXTRA)
-    tag = signature((features, touches, deadball), **settings)
+                    train_extra=deadball.TRAIN_EXTRA, dense=deadball.DENSE,
+                    dense_window=deadball.DENSE_WINDOW)
+    tag = signature((features, touches, deadball, segments), **settings)
     paths = [deadball.oof_path(name, tag) for name in [m.name for m in games] + settings["extra"]]
     if _finished("pdead", tag, paths):
         print("P(dead) out-of-fold: cached @{}".format(tag), flush=True)
@@ -561,6 +563,63 @@ def boundary_grid(games=None):
                            decode.TEAM_COST, dead_tag, home_tag, switch_tag), extra=("cheap",))
 
 
+# -- learning curve --------------------------------------------------------------------------------
+
+CURVE_SIZES = (3, 6)  # clean training games per fold, besides all of the other games
+CURVE_DRAWS = 2       # random subsets of each size per fold
+
+
+def curve_subsets(others, rng):
+    """{size: subsets of the other clean games}; the full set is the largest size. Every subset
+    holds both sources, so a smaller set means fewer games, not a missing source."""
+    out = {len(others): [sorted(others)]}
+    for size in CURVE_SIZES:
+        draws = []
+        while len(draws) < CURVE_DRAWS:
+            pick = sorted(rng.choice(sorted(others), size, replace=False).tolist())
+            if len({source_of(name) for name in pick}) == 2 and pick not in draws:
+                draws.append(pick)
+        out[size] = draws
+    return out
+
+
+def learning_curve(games=None):
+    """spellF1 when the team model trains on CURVE_DRAWS random subsets of CURVE_SIZES of the other
+    clean games, against all of them, leaving one game out; each subset's extra noise copies come
+    with it, and P(dead) is the out-of-fold one throughout. Whether more games would still help,
+    before bringing any in. Saved as learncurve.csv, draws averaged per copy."""
+    games = games if games is not None else bench_games()
+    dead_tag = dead_oof(games)
+    extra = possession.extra_rows(extra_copies(games), dead_tag)
+    tables, names = possession.build_tables(games, dead_tag)
+    rng = np.random.default_rng(0)
+    groups = sorted({deadball.clean_name(m) for m in games})
+    rows = []
+    for held_out in groups:
+        subsets = curve_subsets([g for g in groups if g != held_out], rng)
+        for size, draws in sorted(subsets.items()):
+            for subset in draws:
+                extra_in = [name for name in extra if name.split("~")[0] in subset]
+                model = possession.fit(tables, [m.name for m in games
+                                                if deadball.clean_name(m) in subset],
+                                       names, extra, extra_in)
+                for match in games:
+                    if deadball.clean_name(match) != held_out:
+                        continue
+                    p_dead = np.load(deadball.oof_path(match.name, dead_tag))
+                    p_home = possession.p_home(model, tables[match.name][0])
+                    labels = decode.decode(p_dead, p_home, match.period, decode.TEAM_COST,
+                                           decode.DEAD_COST, decode.MEMORY)
+                    labels = np.where(match.period > 0, labels, X).astype(np.int8)
+                    rows.append(dict(source=source_of(match.name), copy=match.name, games=size,
+                                     **score_both(match, labels)))
+        print("  fold {:<14} done".format(held_out), flush=True)
+    table = pd.DataFrame(rows).groupby(["source", "copy", "games"], as_index=False).mean()
+    full = len(groups) - 1
+    return grid_report(table, ["games"], table["games"] == full, "learncurve",
+                       "team model on fewer clean games (dead @{}) vs all {}".format(dead_tag, full))
+
+
 def compare(name_a, name_b):
     """B against A, per source and label set: means, paired differences, copies and games won."""
     a, b = load(name_a), load(name_b)
@@ -603,6 +662,7 @@ if __name__ == "__main__":
     sub.add_parser("eventgrid", help="event-gated team cost grid against the constant cost")
     sub.add_parser("boundarygrid", help="learned team cost grid against the constant cost")
     sub.add_parser("costgrid", help="decoder team / dead cost grid on a saved run").add_argument("name")
+    sub.add_parser("learncurve", help="team model trained on fewer of the other games")
     args = parser.parse_args()
     if args.command == "run":
         run(args.name)
@@ -618,3 +678,5 @@ if __name__ == "__main__":
         boundary_grid()
     elif args.command == "costgrid":
         cost_grid(args.name)
+    elif args.command == "learncurve":
+        learning_curve()

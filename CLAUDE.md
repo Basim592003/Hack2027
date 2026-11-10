@@ -83,7 +83,8 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 .venv/bin/python -m src.experiment eventgrid      # switch cost cheap near events vs constant (C2: dropped, ~30 s)
 .venv/bin/python -m src.experiment boundarygrid   # learned switch cost, src/boundary.py, vs constant (C6: dropped, ~1 min)
 .venv/bin/python -m src.experiment costgrid NAME  # constant team / dead costs on a saved run's predictions (~3 min); re-pick after any P(home) change
-# The OOF tags hash the source of features.py, touches.py, deadball.py, possession.py and (P(home) only) segments.py:
+.venv/bin/python -m src.experiment learncurve     # team model on 3, 6 and all 9 other games: would more games help? (G2)
+# The OOF tags hash the source of features.py, touches.py, deadball.py, segments.py and (P(home) only) possession.py:
 # any edit to them, even a docstring, recomputes the OOF steps (~10 min) on the next run. Batch such edits first.
 ```
 
