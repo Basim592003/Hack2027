@@ -556,18 +556,42 @@ external games are relabelled.
     6/14 and 4/6, games 2/7 and 1/3. Last touch −0.0004 / +0.0005.
   - Its own cost grid is no better: the best cell is team 12 / dead 40 at 0.6799 / 0.7723, against E3's 0.6840 /
     0.7700 at 10 / 40. **Dropped: `DENSE = False`**, which trains exactly E3's dead-ball model.
-- [ ] **G2 Learning curve** (diagnostic; second because asking for external data takes time). `experiment
+- [x] **G2 Learning curve** (diagnostic; second because asking for external data takes time). `experiment
   learncurve`: per fold, train the team model on two random subsets each of 3 and 6 of the other clean games (both
   sources in each) and on all 9, with the dead ball as is, and score the held-out copies. Noise copies stopped helping
   after one (E5), so only new games can add data. If 6 → 9 adds ≥ 0.01 on either source, bring some in:
   - PFF's World Cup 2022 games: 64, with human-tagged events, free on request;
   - SkillCorner's open A-League games: open, but 10 fps and machine-made possession labels.
 
-  Both are broadcast tracking and take 3–4 sittings, so start one only if access is quick.
+  Both are broadcast tracking and take 3–4 sittings, so start one only if access is quick. No new games.
+  - Done 2026-11-10 in 64 min, on E3's dead-ball model (@3a3c3756ca: with `DENSE = False` its P(dead) equals E3's
+    on 40/40 copies). Controlled spellF1, averaged over draws, then copies:
+
+    | clean training games | IDSSE | Metrica |
+    |---|---|---|
+    | 3 | 0.6734 | 0.7584 |
+    | 6 | 0.6783 | 0.7613 |
+    | 9 (E3) | 0.6840 | 0.7700 |
+
+  - 6 → 9 adds **+0.0057 / +0.0087** (last touch +0.0049 / +0.0070), and 9 games beat 6 on 7/14 and 5/6 copies.
+    3 → 6 adds +0.0049 / +0.0029. The 9-game row reproduces E3 exactly.
+  - **Below the bar: no new games.** The curve has not flattened, so more games would likely still help a little: half
+    as many games again was worth about +0.006 / +0.009 here. But new games would be broadcast tracking from another
+    provider, worth less per game than our own, and they are 3–4 sittings away with the freeze on 15 Nov.
 - [ ] **G3 Kick and segment signals for the dead-ball model.** A restart is a kick after a still ball, and the dead-ball
   model sees neither kicks nor segments. Add the time since and until the last kick and its strength
   (`src/touches.py`), and the ball's speed and seen share pooled over the segment between events (`src/segments.py`,
   without the stoppage edges, which come from this model).
+  - Design, fixed before the run: `features.EVENTS` (`features.event_features`) adds 49 signals to the dead-ball
+    model's 96:
+    - the time since and until a kick;
+    - the last and next kick's strength, and how still the ball was over the 2 s before it;
+    - kick rates over the five context windows;
+    - six signals pooled over the segment, the previous one and the next one, with both contrasts: ball seen, still
+      and speed, players' mean speed and share walking, and the nearest player's speed;
+    - the segment's length, the frame's position in it, and the kinds of events at its two ends.
+
+    Its events are kicks, ball-gap edges and half edges.
 - [ ] **G4 Second-stage team model** (stacking, out of scope until now). A second classifier reads the first one's
   out-of-fold P(home): its log-odds at ±1, 2, 4 and 8 s and pooled over the segment and its neighbours. Folds are
   nested, so no copy is scored by a model whose inputs saw it. C6, a cousin for switch timing, was dropped.
