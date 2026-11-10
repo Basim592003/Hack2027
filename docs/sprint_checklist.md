@@ -578,10 +578,10 @@ external games are relabelled.
   - **Below the bar: no new games.** The curve has not flattened, so more games would likely still help a little: half
     as many games again was worth about +0.006 / +0.009 here. But new games would be broadcast tracking from another
     provider, worth less per game than our own, and they are 3–4 sittings away with the freeze on 15 Nov.
-- [ ] **G3 Kick and segment signals for the dead-ball model.** A restart is a kick after a still ball, and the dead-ball
+- [x] **G3 Kick and segment signals for the dead-ball model.** A restart is a kick after a still ball, and the dead-ball
   model sees neither kicks nor segments. Add the time since and until the last kick and its strength
   (`src/touches.py`), and the ball's speed and seen share pooled over the segment between events (`src/segments.py`,
-  without the stoppage edges, which come from this model).
+  without the stoppage edges, which come from this model). Dropped.
   - Design, fixed before the run: `features.EVENTS` (`features.event_features`) adds 49 signals to the dead-ball
     model's 96:
     - the time since and until a kick;
@@ -592,9 +592,27 @@ external games are relabelled.
     - the segment's length, the frame's position in it, and the kinds of events at its two ends.
 
     Its events are kicks, ball-gap edges and half edges.
+  - Done 2026-11-10. On one IDSSE copy the new signals do separate live from dead. For example, the ball is seen on 90%
+    of a live segment against 25% of a dead one, and the share of players walking is 0.37 against 0.77.
+  - `run g3` (dead @cbdfef07e6, home @6708e6c004) against `e3`, controlled spellF1: **−0.0036 / −0.0072**, copies
+    3/14 and 0/6, games 3/7 and 0/3. Last touch −0.0021 / −0.0063, and every smoothing band loses.
+  - Its own cost grid is no better: the best cell is team 10 / dead 20 at 0.6811 / 0.7649, against E3's 0.6840 /
+    0.7700. **Dropped: `features.EVENTS = False`**, which builds exactly E3's dead-ball features. The old window
+    averages probably carry the same information already.
 - [ ] **G4 Second-stage team model** (stacking, out of scope until now). A second classifier reads the first one's
   out-of-fold P(home): its log-odds at ±1, 2, 4 and 8 s and pooled over the segment and its neighbours. Folds are
   nested, so no copy is scored by a model whose inputs saw it. C6, a cousin for switch timing, was dropped.
+  - Design, fixed before the run (`src/stack.py`, `experiment run NAME --stack`):
+    - inputs: the first stage's 118 view features plus 31 context features from its P(home): log-odds at ±1, 2, 4
+      and 8 s, their means over seven windows of up to 8 s and spread over two, pooled over the segment and its
+      neighbours with contrasts, the signed teams of the segment's end events, P(dead) and the distance to a
+      stoppage;
+    - both views, with the away view's sign-dependent context negated (checked: they flip exactly);
+    - nesting: one first-stage model per pair of clean games (45 fits), trained without both. For a held-out game,
+      its predictions on the other nine games' seed-0 copies train the second stage, with the first stage's
+      training rows and classifier settings. The second stage is applied to the held-out game's usual out-of-fold
+      P(home).
+  - Scored at team 10 / dead 40, then its own cost grid, since it changes P(home)'s confidence. Same gate.
 
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [x] **F1** Re-pick the decoder costs on the final model.

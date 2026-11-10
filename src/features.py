@@ -17,6 +17,12 @@ and thrown back (src/noise.py, v4). Two signals hold whatever it does meanwhile:
                      (src/touches.py) -- once out, play stays dead until somebody plays it again.
   nearest_speed      how fast the player nearest the ball moves: a ball carried at walking pace
                      is not a dribble.
+
+Behind EVENTS (sprint item G3), event_features adds what a restart looks like: when the last and
+next kicks were, how hard they were and how still the ball was in the 2 s before each (a restart
+is a kick after a still ball), how many kicks there are around, and the signals in EVENT_POOLED
+averaged over the stretch between events (src/segments.py) and the stretches either side, so a
+stoppage can end at its restart kick rather than wherever a window average happens to cross.
 """
 
 import numpy as np
@@ -42,6 +48,11 @@ WINDOWS = (("c1", 12, 12), ("c4", 50, 50), ("c10", 125, 125), ("past4", 100, 0),
 WINDOWED = ("ball_seen", "ball_speed", "ball_still", "mean_speed", "frac_slow", "frac_fast",
             "n_visible", "boundary_dist", "nearest_dist", "n_within_9m", "own_half_min",
             "nearest_speed")
+
+EVENTS = False           # sprint item G3: kick and segment signals (event_features; lost, off)
+RESTART_STILL = 50       # frames, 2 s, before a kick over which the ball's stillness is measured
+EVENT_POOLED = ("ball_seen", "ball_still", "ball_speed", "mean_speed", "frac_slow",
+                "nearest_speed")
 
 
 def rolling_mean(values, before, after):
@@ -134,6 +145,54 @@ def ball_geometry(bx, by, pitch):
     }
 
 
+def at_events(values, i):
+    """values[i] where 0 <= i < len(values), NaN elsewhere (also when there are no events)."""
+    ok = (i >= 0) & (i < len(values))
+    out = np.full(len(i), np.nan)
+    out[ok] = values[i[ok]]
+    return out
+
+
+def event_features(feats, kick_frames, kick_teams, kick_strength, seen, period):
+    """Kick timing and segment means for the dead-ball model, from frame_features' own signals.
+    The events are kicks, ball-gap edges and half edges: close-team changes say nothing about a
+    stoppage, and predicted stoppage edges would come from this very model."""
+    from . import segments  # segments imports this module
+    from .touches import KINK_LAG
+    n = len(seen)
+    index = np.arange(n)
+    out = {}
+    pos = np.searchsorted(kick_frames, index, side="right")
+    out["log_since_kick"] = np.log1p(np.fmin(index - at_events(kick_frames, pos - 1), CONTEXT_CAP))
+    out["log_until_kick"] = np.log1p(np.fmin(at_events(kick_frames, pos) - index, CONTEXT_CAP))
+    still = rolling_mean(feats["ball_still"], RESTART_STILL, 0)
+    still_before = still[np.maximum(kick_frames - KINK_LAG, 0)]
+    for name, values in (("strength", kick_strength), ("still_before", still_before)):
+        out["last_kick_" + name] = at_events(values, pos - 1)
+        out["next_kick_" + name] = at_events(values, pos)
+    marks = np.zeros(n)
+    marks[kick_frames] = 1.0
+    for tag, before, after in WINDOWS:
+        out["kick_rate_" + tag] = rolling_mean(marks, before, after)
+
+    touch = {"kick_frames": kick_frames, "kick_teams": kick_teams,
+             "close_change_frames": np.zeros(0, dtype=np.int64),
+             "close_change_teams": np.zeros(0, dtype=np.int8)}
+    frames, kinds, teams = segments.events(touch, seen, np.zeros(n, dtype=bool), period)
+    layout = segments.layout(frames, kinds, teams, seen)
+    for name in ["seg_log_len", "seg_pos"] + ["seg_{}_{}".format(edge, kind) for edge in
+                                             ("start", "end") for kind in ("kick", "gap", "stop")]:
+        out[name] = layout[name]
+    for name in EVENT_POOLED:
+        own, before, after = segments.pool(np.asarray(feats[name], dtype=np.float64), frames)
+        out["seg_" + name] = own
+        out["seg_{}_prev".format(name)] = before
+        out["seg_{}_next".format(name)] = after
+        out["seg_{}_from_prev".format(name)] = own - before
+        out["seg_{}_to_next".format(name)] = after - own
+    return out
+
+
 def frame_features(match):
     fps = match.fps
     n = match.n_frames
@@ -190,8 +249,8 @@ def frame_features(match):
     # Out of play until restarted. An off-pitch frame within KINK_LAG of the last kick is the
     # restart itself (a throw-in leaves from behind the line), not the ball going out again.
     from .touches import KINK_LAG, kicks  # touches imports this module
-    kick_frames, _, _ = kicks(match.bx.astype(np.float64), match.by.astype(np.float64), dist,
-                              match.team, fps)
+    kick_frames, kick_teams, kick_strength = kicks(match.bx.astype(np.float64),
+                                                   match.by.astype(np.float64), dist, match.team, fps)
     del dist
     off = np.nan_to_num(geometry["boundary_dist"], nan=np.inf) < -OFF_PITCH
     off &= seen
@@ -204,6 +263,9 @@ def frame_features(match):
                                   ).astype(np.float64)
     feats["log_since_off_pitch"] = np.log1p(np.minimum(
         np.where(last_off >= 0, index - last_off, CONTEXT_CAP), CONTEXT_CAP))
+    if EVENTS:
+        feats.update(event_features(feats, kick_frames, kick_teams, kick_strength, seen,
+                                    match.period))
 
     # Kick-off shape: every player of both teams in their own half.
     sides = team_sides(match)
