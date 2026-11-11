@@ -400,14 +400,16 @@ def hint_costs(changes, n):
     return cost
 
 
-def oracles(games=None):
+def oracles(games=None, stacked=False):
     """Headroom, from the current out-of-fold predictions, against both label sets:
     true D, true team, perfect switch timing (cheap switches only near real in-play changes), and
     perfect timing restricted to changes that have an event (src/segments.py) within HINT frames --
-    the ceiling for an event-gated switch cost."""
+    the ceiling for an event-gated switch cost. With stacked, P(home) is the second stage's."""
     games = games if games is not None else bench_games()
     dead_tag = dead_oof(games)
     home_tag = home_oof(games, dead_tag)
+    if stacked:
+        home_tag = stack_oof(games, dead_tag, home_tag)
     rows, identical = [], 0
     for match in games:
         p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
@@ -707,7 +709,8 @@ if __name__ == "__main__":
     cmp_parser = sub.add_parser("compare", help="compare two saved runs")
     cmp_parser.add_argument("a")
     cmp_parser.add_argument("b")
-    sub.add_parser("oracles", help="headroom: true D, true team, perfect switch timing")
+    sub.add_parser("oracles", help="headroom: true D, true team, perfect switch timing") \
+        .add_argument("--stack", action="store_true", help="the second stage's P(home)")
     cross_parser = sub.add_parser("crossbench", help="train on one noise version, score another")
     cross_parser.add_argument("--train", type=int, required=True, metavar="VERSION")
     cross_parser.add_argument("--test", type=int, required=True, metavar="VERSION")
@@ -721,7 +724,7 @@ if __name__ == "__main__":
     elif args.command == "compare":
         compare(args.a, args.b)
     elif args.command == "oracles":
-        oracles()
+        oracles(stacked=args.stack)
     elif args.command == "crossbench":
         crossbench(args.train, args.test)
     elif args.command == "eventgrid":

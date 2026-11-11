@@ -636,6 +636,23 @@ external games are relabelled.
   - BAR-ATH aggregates, sanity only: 326 possessions of mean 10.9 s (E3: 315 of 11.3 s), 44.0% D across 106
     stoppages, home 60.7%.
 
+**Where the gaps are after G4** (2026-11-11, `python -m src.diag.gaps g4-t12` and `experiment oracles --stack`).
+Controlled labels, per match, IDSSE / Metrica:
+- **Headroom:** true team +0.269 / +0.178, perfect timing +0.049 / +0.029, true D +0.035 / +0.051.
+- **Short possessions.** 240 of 365 and 237 of 319 real possessions are matched at IoU 0.5. Possessions under 4 s are
+  155 / 107 of them, and only 46% / 52% are matched, against 87% / 91% of those over 8 s. They make up 83 / 51 of the
+  125 / 82 misses.
+- **Causes of a miss:**
+  - wrong team, 55 / 34: we stay with the team before;
+  - merged, 46 / 32: a brief possession of the other side is skipped, and ours runs on through it;
+  - split or boundary off, 15 / 8;
+  - called dead, 10 / 9.
+- **By how they start:** possessions starting with a turnover match 60% / 70%, against 79% / 85% after a stoppage.
+  Possessions with the ball seen under half the time (13% of them) match 43% / 51%.
+- **Our unmatched possessions:** 78 / 49 a match. Of these, 33 / 19 are really the other team's, mostly under 4 s,
+  and 41 / 23 are pieces of a real one.
+- In-play predicted possessions under 1 s are rare (0.8 a match), so a minimum-length rule would change nothing.
+
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [x] **F1** Re-pick the decoder costs on the final model.
   - Done 2026-11-09 with `costgrid e3`: IDSSE's plateau is team 8–10 and Metrica's best is 12, within 0.002 of 10.
