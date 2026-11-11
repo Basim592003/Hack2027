@@ -6,7 +6,7 @@
 
 The ranking metric scores **whole possessions**: maximal runs of `H` or `A`, matched one-to-one to the true runs by temporal overlap. A per-frame classifier flickers and invents hundreds of possessions; the published baseline predicts 131 on a stretch that has 17. So the pipeline makes the decision about **segments**, not frames.
 
-It has three stages. **Every learned part is trained, and every setting chosen, on labelled games other than BAR-ATH.**
+It has four stages. **Every learned part is trained, and every setting chosen, on labelled games other than BAR-ATH.**
 
 1. **Dead-ball detector.** For each frame it gives a probability that play is stopped. It is a gradient-boosted classifier over 96 signals computed from positions:
    - **ball:** visibility, speed, distance to the lines (negative outside), and whether it is at a corner, the 6-yard box or the centre spot;
@@ -35,9 +35,16 @@ It has three stages. **Every learned part is trained, and every setting chosen, 
    Every signal is computed from each team's point of view, with the pitch oriented so that team attacks the same way. Training uses both views of every frame and inference averages them. The model therefore cannot learn that "home usually has the ball", and its output is symmetric by construction.
 
    **Training rows** are both views of every 5th live frame, plus every live frame within 12 frames (0.5 s) of a change of team, where the decision is hardest. They come from the 20 degraded external games of §3 plus a second, independently degraded copy of each.
-3. **Decoder.** One Viterbi pass over four states: home, away, dead after home, and dead after away.
-   - Frame evidence: P(D) = p_dead, P(H) = (1 − p_dead)·p_home, P(A) = (1 − p_dead)·(1 − p_home).
-   - Every change of team costs 10 and every entry to or exit from a stoppage costs 40, in log-probability units. Both were chosen on the external games. The team cost was re-chosen when the denser training made the team model sharper at hand-overs.
+3. **Second stage.** A second gradient-boosted classifier gives P(home) again (`src/stack.py`). Next to the team model's 118 signals, it sees 31 more made from the team model's own output around the frame:
+   - its log-odds 1, 2, 4 and 8 s before and after;
+   - their mean over seven windows of up to 8 s, and their spread over two;
+   - their mean over the segment, the one before and the one after, with the differences;
+   - the teams of the events that bound the segment, P(dead), and how far the frame is from a stoppage.
+
+   The decoder adds frames up as if each were separate evidence, but the team model's mistakes last as long as whatever misleads it. The second stage learns from the other games when the team model's guess holds. It is trained only on the team model's out-of-fold predictions, so it learns what the team model is like on a game it has not seen, and it is symmetric in the same way.
+4. **Decoder.** One Viterbi pass over four states: home, away, dead after home, and dead after away.
+   - Frame evidence: P(D) = p_dead, P(H) = (1 − p_dead)·p_home, P(A) = (1 − p_dead)·(1 − p_home), with p_home from the second stage.
+   - Every change of team costs 12 and every entry to or exit from a stoppage costs 40, in log-probability units. Both were chosen on the external games. The team cost was re-chosen twice: when denser training made the team model sharper at hand-overs, and for the second stage, which finds more of them.
    - A team change only happens where the evidence for the other team is sustained enough to pay that cost.
    - Frames outside the two graded halves are written as `X`.
 
@@ -117,11 +124,11 @@ Each game was scored with the official `evaluation/possession_metrics.py`. Leave
 | spellF1 | controlled, IDSSE | controlled, Metrica | last touch, IDSSE | last touch, Metrica |
 |---|---|---|---|---|
 | starter baseline (nearest player, ±2 s vote) | 0.298 | 0.337 | 0.277 | 0.318 |
-| **final pipeline** | **0.684** | **0.770** | **0.628** | **0.704** |
+| **final pipeline** | **0.690** | **0.770** | **0.637** | **0.710** |
 
-Controlled macroF1 is 0.911 / 0.929.
+Controlled macroF1 is 0.912 / 0.929.
 
-**How the last steps added up.** Each step was kept only if it gained on both sources, or 0.005 on one with the other flat, and won most paired copies in each. Controlled spellF1, IDSSE / Metrica, each row on top of the one before:
+**How the last steps added up.** Each step was kept only if it gained on both sources, or 0.005 on one with the other flat, and won most paired copies in each. The last step is the one exception (below). Controlled spellF1, IDSSE / Metrica, each row on top of the one before:
 
 | step | IDSSE | Metrica |
 |---|---|---|
@@ -129,9 +136,17 @@ Controlled macroF1 is 0.911 / 0.929.
 | + segment features (§1) | 0.666 | 0.742 |
 | + corrected Metrica labels (§3); Metrica scored on them from here on | 0.671 | 0.754 |
 | + training rows near every change of team, team cost 6 → 10 | 0.677 | 0.761 |
-| + a second noise copy of every game for training | **0.684** | **0.770** |
+| + a second noise copy of every game for training | 0.684 | 0.770 |
+| + second-stage team model, team cost 10 → 12 | **0.690** | **0.770** |
 
 On the corrected labels, the model before that step scores 0.745 on Metrica, so the label fix itself is worth +0.009 there and +0.005 on IDSSE.
+
+The second stage wins 12 of 14 IDSSE copies but only 3 of 6 Metrica copies, where the rule asks for 4. On Metrica it is flat (+0.0004), with 2 of its 3 games up. It was kept because the gain is broad:
+- last touch rises by +0.009 / +0.007;
+- more turnovers in play are recovered, 59% → 61% on IDSSE and 69.7% → 69.9% on Metrica;
+- the true team gets more probability in short possessions: 0.51 → 0.54 and 0.50 → 0.54.
+
+Its evaluation is nested. Each held-out game's second stage is trained on team-model predictions from models that saw neither that game nor the one predicted.
 
 **How the pipeline was built**, on an earlier bench whose dead ball was frozen or missing, last-touch labels:
 
@@ -147,7 +162,7 @@ On the corrected labels, the model before that step scores 0.745 on Metrica, so 
 - Re-rendering the dead ball (§3): the earlier dead ball was too easy. Any visible stoppage ball was perfectly still, so the detector learned that a moving ball means play is live. On the re-rendered bench the previous pipeline scores 0.621 / 0.676 against 0.672 / 0.700, and it loses on every one of the 20 games.
 - Smoothing the ball (§3): on the most heavily smoothed copies, training with the filter gains +0.05 controlled spellF1, on all 6 copies.
 
-**Where the remaining error is.** These figures were measured before the last three steps. On the bench, giving the decoder the true team would raise controlled spellF1 by +0.29 / +0.19, the true dead ball by +0.04 / +0.08, and perfect timing of team changes by +0.04 / +0.03. So the errors left are mostly *which* team has the ball in short possessions.
+**Where the remaining error is.** These figures were measured before the last four steps. On the bench, giving the decoder the true team would raise controlled spellF1 by +0.29 / +0.19, the true dead ball by +0.04 / +0.08, and perfect timing of team changes by +0.04 / +0.03. So the errors left are mostly *which* team has the ball in short possessions.
 
 **Does it carry over to BAR-ATH?** We can't score that without labels, but some checks need none. None of them was used to choose anything.
 - **Ball filter.** Kicks are as frequent on BAR-ATH as on the bench: 8.9 per graded minute, against 8.8 on the IDSSE copies.
@@ -168,10 +183,13 @@ On the corrected labels, the model before that step scores 0.745 on Metrica, so 
 - **Monotonic constraints** on the team model's signals: −0.004 / −0.013.
 - **Classifier settings**: more leaves, slower learning, feature subsampling, larger leaves. None was better on both sources; the closest, 63 leaves, gave +0.005 / −0.000.
 - **More training copies**: a third noise copy of every game gave −0.000 / −0.001. Training the dead-ball model on the second copy too gave −0.001 / −0.003.
+- **Training the dead-ball detector densely around stoppage edges**, as the team model is around hand-overs: −0.002 / −0.002.
+- **Kick and segment signals for the dead-ball detector**: −0.004 / −0.007. These were the time since and until a kick, its strength and how still the ball was before it, kick rates, and six signals averaged over the segments between kicks and ball gaps.
 
 ## 6. Limitations
 
-- **Short possessions.** On frames of real possessions under 2 s that start in play, the team model gives the true team a probability of only about one half on average: 0.51 / 0.50, up from 0.46 / 0.44 before the denser training. Possessions that start with a turnover in play are matched 59% / 70% of the time (IoU 0.5), far less often than those that start at a restart.
+- **Short possessions.** On frames of real possessions under 2 s that start in play, the second stage gives the true team a probability of only about one half on average: 0.54 / 0.54, up from 0.46 / 0.44 before the denser training and the second stage. Possessions that start with a turnover in play are matched 61% / 70% of the time (IoU 0.5), far less often than those that start at a restart.
+- **Few labelled games.** Trained on 3, 6 and 9 of the other games, the team model scores 0.673 / 0.758, 0.678 / 0.761 and 0.684 / 0.770, so it is still gaining from data. The public candidates were not brought in: PFF's World Cup 2022 games and SkillCorner's A-League games are broadcast tracking from other providers, and there was not time to convert and check them.
 - **Convention gap.** The models are trained on last-touch labels and scored on our reading of controlled possession. BAR-ATH's annotators may draw the line differently.
 - **Unknown ball-loss pattern.** How often and for how long the ball is lost during live play on BAR-ATH cannot be measured without labels. The bench draws gap lengths over a wide range. BAR-ATH's ball is never missing for 1–4 s, so its tracker evidently fills short losses, while the bench's often is. Short gaps are decoded correctly on the bench (1–2% wrongly called dead), so this probably costs little.
 - **The ball filter is not Gaussian.** BAR-ATH's ball matches the heavily smoothed bench copies on short-scale smoothness, but its kick rate matches the moderately smoothed ones. The range of filter widths in training covers both.
@@ -190,16 +208,22 @@ python -m src.run --out evaluation/results/[team_name].csv
 python evaluation/validate_submission.py evaluation/results/[team_name].csv
 ```
 
-`src.run` takes about 6 minutes from an empty cache on a 10-core laptop with 16 GB of RAM, peaking at 3.5 GB. It is deterministic: fixed seeds, a fixed model `random_state` and pinned inputs. Two rebuilds from an empty `data/cache/` reproduced the file byte for byte (SHA-256 `dd9339aeaaddabb226338a429eb12cb8e1c5f2a0ff351ab02091c7a8ac888f4b`).
+`src.run` takes about 18 minutes from an empty cache on a 10-core laptop with 16 GB of RAM, peaking at 5.3 GB. It is deterministic: fixed seeds, a fixed model `random_state` and pinned inputs. Two rebuilds from an empty `data/cache/` reproduced the file byte for byte (SHA-256 `ce4cdd876e5b8ebc4728b518ad56d476c23130a5d1a638cf06c7a941799926fb`).
 
-The submission reports 315 possessions of mean 11.3 s, 44.1% of graded frames dead ball across 106 stoppages, and the home side on the ball for 60.7% of live time.
+The submission reports 326 possessions of mean 10.9 s, 44.0% of graded frames dead ball across 106 stoppages, and the home side on the ball for 60.7% of live time.
 
 To reproduce §5:
 - `python -m src.experiment run NAME` gives out-of-fold predictions on the bench, decodes them, and scores both conventions;
+- `python -m src.experiment run NAME --stack` does the same with the second stage, in nested folds (about 3.5 hours);
+- `python -m src.experiment learncurve` trains the team model on fewer of the games;
 - `python -m src.experiment compare A B` pairs two runs copy by copy;
 - `python -m src.experiment oracles` gives the headroom;
 - `python -m src.experiment costgrid NAME` gives the decoder costs;
 - `python -m src.experiment eventgrid` and `boundarygrid` give the per-frame switch costs;
 - `python -m src.segments`, `src.flight`, `src.lagcheck`, `src.touches` and `src.coverage` give the carry-over checks, which print BAR-ATH aggregates only.
 
-The flags at the top of `src/possession.py` (`SEGMENTS`, `FLIGHT`, `PRESSURE`, `MONOTONIC`, `DENSE`, `EXTRA_SEEDS`) and `src/deadball.py` (`TRAIN_EXTRA`) switch the signal families and training choices compared above. `docs/sprint_checklist.md` records every comparison, with its numbers and date.
+Flags at the top of these modules switch the signal families and training choices compared above:
+- `src/possession.py`: `SEGMENTS`, `FLIGHT`, `PRESSURE`, `MONOTONIC`, `DENSE`, `EXTRA_SEEDS`;
+- `src/deadball.py`: `TRAIN_EXTRA`, `DENSE`;
+- `src/features.py`: `EVENTS`;
+- `src/run.py`: `STACKED`, for the second stage. `docs/sprint_checklist.md` records every comparison, with its numbers and date.

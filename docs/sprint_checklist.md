@@ -599,9 +599,10 @@ external games are relabelled.
   - Its own cost grid is no better: the best cell is team 10 / dead 20 at 0.6811 / 0.7649, against E3's 0.6840 /
     0.7700. **Dropped: `features.EVENTS = False`**, which builds exactly E3's dead-ball features. The old window
     averages probably carry the same information already.
-- [ ] **G4 Second-stage team model** (stacking, out of scope until now). A second classifier reads the first one's
+- [x] **G4 Second-stage team model** (stacking, out of scope until now). A second classifier reads the first one's
   out-of-fold P(home): its log-odds at ±1, 2, 4 and 8 s and pooled over the segment and its neighbours. Folds are
   nested, so no copy is scored by a model whose inputs saw it. C6, a cousin for switch timing, was dropped.
+  **Kept, as a gate exception.**
   - Design, fixed before the run (`src/stack.py`, `experiment run NAME --stack`):
     - inputs: the first stage's 118 view features plus 31 context features from its P(home): log-odds at ±1, 2, 4
       and 8 s, their means over seven windows of up to 8 s and spread over two, pooled over the segment and its
@@ -613,11 +614,34 @@ external games are relabelled.
       training rows and classifier settings. The second stage is applied to the held-out game's usual out-of-fold
       P(home).
   - Scored at team 10 / dead 40, then its own cost grid, since it changes P(home)'s confidence. Same gate.
+  - Done 2026-11-10. `run g4 --stack` (dead @0d2432cd62, first stage @e858c6838b, second stage @8cd2256d74) took
+    3.6 h for 45 pair fits and 10 second-stage fits. Against `e3` at team 10 / dead 40, controlled spellF1
+    **+0.0055 / −0.0033**, copies 11/14 and 2/6; last touch +0.0115 / +0.0076.
+  - It predicts more possessions (327 / 294 against 313 / 282) and finds more of the real ones:
+    - turnovers recovered 0.593 → 0.619 and 0.697 → 0.708;
+    - P(true team) in spells under 2 s 0.513 → 0.535 and 0.504 → 0.536;
+    - changes answered within 8 frames 0.357 → 0.385 and 0.439 → 0.464.
+  - Its own cost grid (`costgrid g4`) peaks at team 12 / dead 40 on both sources. There (`run g4-t12 --stack`):
+    **+0.0055 / +0.0004**, copies 12/14 and 3/6, games 6/7 and 2/3. Last touch +0.0091 / +0.0067, copies 12/14 and
+    4/6. By ball smoothing: +0.0045 (6/8), −0.0012 (3/6) and +0.0086 (6/6).
+  - **Gate.** It rises on both sources, and last touch rises too. But it wins 3 of 6 Metrica copies, one short of the
+    4 the gate asks. E4's 63-leaf model was dropped on a similar pattern (+0.0046 / −0.0004, 3/6). **Kept as an
+    exception, the user's decision on 2026-11-10**, because the gain is broad: 12/14 IDSSE copies, 2 of 3 Metrica
+    games, last touch up on both sources, and every turnover diagnostic up on both.
+  - **New baseline `g4-t12`**: controlled 0.6896 / 0.7704, last touch 0.6371 / 0.7104, macroF1 0.9119 / 0.9287.
+    `decode.TEAM_COST = 12`, and `run.STACKED = True` adds step 3b to `src.run`.
+  - Submission regenerated, with F1–F3 redone below: SHA-256
+    `ce4cdd876e5b8ebc4728b518ad56d476c23130a5d1a638cf06c7a941799926fb`, valid. `src.run` now takes 14 min from a warm
+    cache, with a 5.0 GB peak. The E3 file is kept as `data/cache/possession_e3_dd9339ae.csv`.
+  - BAR-ATH aggregates, sanity only: 326 possessions of mean 10.9 s (E3: 315 of 11.3 s), 44.0% D across 106
+    stoppages, home 60.7%.
 
 ## F. Release (Sun 15 – Tue 17 Nov). On 15 Nov stop new work, whatever is unticked.
 - [x] **F1** Re-pick the decoder costs on the final model.
   - Done 2026-11-09 with `costgrid e3`: IDSSE's plateau is team 8–10 and Metrica's best is 12, within 0.002 of 10.
     **Team 10 / dead 40 stays.** E4–E6 changed nothing that ships, so E3 is the final model.
+  - Redone 2026-11-10 for G4: `costgrid g4` puts both sources' best at team 12 / dead 40 (0.6896 / 0.7704), against
+    0.6896 / 0.7667 at 10 and 0.6879 / 0.7675 at 16. **Team 12 / dead 40.** G4 is the final model.
 - [x] **F2** Rebuild with `data/cache/` moved aside: two runs give an identical SHA-256, and the validator passes. Run
   `evaluation/run_evaluation.py` as an alignment check only.
   - Done 2026-11-09. Two rebuilds from an empty `data/cache/` (about 6 min each, raw-data conversion included) both
@@ -625,6 +649,10 @@ external games are relabelled.
     validator. The warm cache is restored.
   - Alignment check on the public 5 minutes, used for nothing else: 17 predicted possessions against 17 real, so
     frames and format line up.
+  - Redone 2026-11-10 for G4. Two rebuilds from an empty `data/cache/` (18 min each, 5.3 GB peak) both give SHA-256
+    **`ce4cdd876e5b8ebc4728b518ad56d476c23130a5d1a638cf06c7a941799926fb`**, the same as the warm build, and pass the
+    validator. The warm cache is restored. Alignment check, used for nothing else: 15 predicted possessions against
+    17 real.
 - [x] **F3** Update `docs/technical_document.md` §1 and §3–7, CLAUDE.md, and the docstrings of the modules that changed.
   - Done 2026-11-09. In the tech doc:
     - §1 describes 118 team signals in five families, the training rows and team cost 10;
@@ -634,6 +662,14 @@ external games are relabelled.
     - §6 and §7 give the current limits, hash and aggregates.
 
     CLAUDE.md gains a sprint entry in its build order. The changed modules' docstrings were updated item by item.
+  - Redone 2026-11-10 for G4:
+    - in the tech doc, §1 gains the second stage as stage 3, with team cost 12;
+    - §5 gives the final numbers and the steps table, with G4 marked as the gate exception, and adds G1 and G3 to
+      what was tried and dropped;
+    - §6 adds the learning curve, and §6 and §7 give the new limits, timing, hash and aggregates.
+
+    CLAUDE.md's build order and commands are updated, and so are the docstrings of `src/run.py` and `src/decode.py`.
+    `src/stack.py` is new.
   - **Still for the user:** fill in the team name (the tech doc's header and §7 use `[team name]` / `[team_name]`).
     Send the organiser question in `docs/organiser_question.md`: the tech doc says "We have asked the organisers",
     so that sentence must be true before submitting.

@@ -42,6 +42,10 @@ Re-picked 2026-11-09 (sprint item E2, experiment costgrid). Training the team mo
 changes makes P(home) sharper at hand-overs, and its plateau moves to team 10-12 (controlled
 spellF1 0.677-0.678 IDSSE, 0.761 Metrica; IDSSE falls to 0.672 at 16). Team 10 is chosen, the
 middle of it, with dead 40.
+
+Re-picked 2026-11-10 (sprint item G4) for the second-stage team model (src/stack.py), which finds
+more hand-overs: team 12 with dead 40 is best on both sources (controlled spellF1 0.6896 IDSSE,
+0.7704 Metrica), against 0.6896 / 0.7667 at team 10 and 0.6879 / 0.7675 at 16.
 """
 
 import argparse
@@ -72,7 +76,7 @@ DEAD_COSTS = (10.0, 20.0, 40.0)
 SWITCH_RATE = 0.7         # share of stoppages that hand the ball over, external games
 
 # The settings the submission uses, chosen on the external bench (see the docstring).
-TEAM_COST, DEAD_COST, MEMORY, SNAP = 10.0, 40.0, False, False
+TEAM_COST, DEAD_COST, MEMORY, SNAP = 12.0, 40.0, False, False
 
 
 def log_emissions(p_dead, p_home):

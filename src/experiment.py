@@ -4,6 +4,7 @@ Every choice between two versions of the pipeline is made here (docs/sprint_chec
 whatever the code and flags are when it runs:
 
     python -m src.experiment run NAME        # out-of-fold P(dead) and P(home), joint decode, scores
+    python -m src.experiment run NAME --stack   # the same with the second-stage P(home) (nested)
     python -m src.experiment compare A B     # two saved runs side by side, per source
     python -m src.experiment oracles         # headroom: true D, true team, perfect switch timing
     python -m src.experiment crossbench --train 4 --test 5   # trained on one noise version, scored on another
@@ -38,7 +39,7 @@ import numpy as np
 import pandas as pd
 
 from . import (boundary, controlled, deadball, decode, features, flight, noise, possession,
-               pressure, segments, touches)
+               pressure, segments, stack, touches)
 from .bench import bench_games, source_of
 from .match import A, CACHE_DIR, D, H, X, Match
 
@@ -141,6 +142,51 @@ def home_oof(games, dead_tag):
     return tag
 
 
+def stack_oof(games, dead_tag, home_tag):
+    """Tag of the nested out-of-fold second-stage P(home) (src/stack.py), saved where a tagged
+    P(home) goes, so `costgrid` and `compare` read it like any run's.
+
+    For a held-out game, the second stage trains on the other games' copies with first-stage
+    predictions from models that saw neither the held-out game nor that copy's game: one model per
+    pair of clean games, serving both. It is then applied to the held-out game's ordinary
+    out-of-fold first-stage P(home)."""
+    settings = dict(dead=dead_tag, home=home_tag, games=[m.name for m in games],
+                    lags=stack.LAGS, windows=stack.WINDOWS, spread=stack.SPREAD, cap=stack.Z_CAP)
+    tag = signature((features, touches, deadball, possession, segments, flight, pressure, stack),
+                    **settings)
+    paths = [possession.oof_path(m.name, tag) for m in games]
+    if _finished("pstack", tag, paths):
+        print("second stage out-of-fold: cached @{}".format(tag), flush=True)
+        return tag
+    print("second stage out-of-fold @{}".format(tag), flush=True)
+    extra = possession.extra_rows(extra_copies(games), dead_tag)
+    tables, names = possession.build_tables(games, dead_tag)
+    groups = sorted({deadball.clean_name(m) for m in games})
+    copies = {g: [m.name for m in games if deadball.clean_name(m) == g] for g in groups}
+    events = {m.name: segments.match_events(m, tables[m.name][2]) for m in games}
+    p_dead = {m.name: np.load(deadball.oof_path(m.name, dead_tag)) for m in games}
+    inner = {g: {} for g in groups}   # inner[g][copy]: from a first stage that saw neither game
+    for a, b in itertools.combinations(groups, 2):
+        train = [m.name for m in games if deadball.clean_name(m) not in (a, b)]
+        extra_in = [name for name in extra if name.split("~")[0] not in (a, b)]
+        model = possession.fit(tables, train, names, extra, extra_in)
+        for held, other in ((a, b), (b, a)):
+            for name in copies[held]:
+                inner[other][name] = possession.p_home(model, tables[name][0])
+        print("  pair {} / {} done".format(a, b), flush=True)
+    for held_out in groups:
+        model = stack.fit([stack.rows(tables[name][0], p, p_dead[name], tables[name][2],
+                                      events[name], tables[name][1], name)
+                           for name, p in inner[held_out].items()])
+        for name in copies[held_out]:
+            p = stack.p_home(model, tables[name][0], np.load(possession.oof_path(name, home_tag)),
+                             p_dead[name], tables[name][2], events[name])
+            np.save(possession.oof_path(name, tag), p.astype(np.float32))
+        print("  fold {:<14} done".format(held_out), flush=True)
+    _finish("pstack", tag, games, settings)
+    return tag
+
+
 # -- scoring ---------------------------------------------------------------------------------------
 
 def score(truth, pred):
@@ -220,11 +266,14 @@ def game_row(match, labels, p_home):
 
 # -- runs and comparisons --------------------------------------------------------------------------
 
-def run(name, games=None):
-    """Out-of-fold predictions (cached by tag), the joint decoder as src.run uses it, scores."""
+def run(name, games=None, stacked=False):
+    """Out-of-fold predictions (cached by tag), the joint decoder as src.run uses it, scores. With
+    stacked, the second stage's P(home) (src/stack.py) replaces the first stage's."""
     games = games if games is not None else bench_games()
     dead_tag = dead_oof(games)
     home_tag = home_oof(games, dead_tag)
+    if stacked:
+        home_tag = stack_oof(games, dead_tag, home_tag)
     rows = []
     for match in games:
         p_dead, p_home = decode.oof(match, dead_tag=dead_tag, home_tag=home_tag)
@@ -651,7 +700,10 @@ def compare(name_a, name_b):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("run", help="score the pipeline as it stands").add_argument("name")
+    run_parser = sub.add_parser("run", help="score the pipeline as it stands")
+    run_parser.add_argument("name")
+    run_parser.add_argument("--stack", action="store_true",
+                            help="second-stage P(home), src/stack.py (sprint item G4)")
     cmp_parser = sub.add_parser("compare", help="compare two saved runs")
     cmp_parser.add_argument("a")
     cmp_parser.add_argument("b")
@@ -665,7 +717,7 @@ if __name__ == "__main__":
     sub.add_parser("learncurve", help="team model trained on fewer of the other games")
     args = parser.parse_args()
     if args.command == "run":
-        run(args.name)
+        run(args.name, stacked=args.stack)
     elif args.command == "compare":
         compare(args.a, args.b)
     elif args.command == "oracles":

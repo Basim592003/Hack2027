@@ -78,13 +78,14 @@ Use `.venv/bin/python`. It is Python 3.9.6 with numpy, pandas, kloppy 3.18, scik
 
 # A/B harness (src/experiment.py): every keep/drop decision since 2026-11-08
 .venv/bin/python -m src.experiment run NAME       # tagged OOF caches + joint decode, scored on last-touch AND controlled labels (~15 min cold since E3, seconds cached)
+.venv/bin/python -m src.experiment run NAME --stack   # the same with the second stage, src/stack.py, in nested folds (G4; ~3.5 h cold)
 .venv/bin/python -m src.experiment compare A B    # B vs A per source: means, paired diffs, copies/games won, diagnostics
 .venv/bin/python -m src.experiment oracles        # headroom: true D, true team, perfect switch timing (also at events only)
 .venv/bin/python -m src.experiment eventgrid      # switch cost cheap near events vs constant (C2: dropped, ~30 s)
 .venv/bin/python -m src.experiment boundarygrid   # learned switch cost, src/boundary.py, vs constant (C6: dropped, ~1 min)
 .venv/bin/python -m src.experiment costgrid NAME  # constant team / dead costs on a saved run's predictions (~3 min); re-pick after any P(home) change
 .venv/bin/python -m src.experiment learncurve     # team model on 3, 6 and all 9 other games: would more games help? (G2)
-# The OOF tags hash the source of features.py, touches.py, deadball.py, segments.py and (P(home) only) possession.py:
+# The OOF tags hash the source of features.py, touches.py, deadball.py, segments.py, (P(home)) possession.py and (second stage) stack.py:
 # any edit to them, even a docstring, recomputes the OOF steps (~10 min) on the next run. Batch such edits first.
 ```
 
@@ -160,7 +161,7 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
    - a team-shape model for frames without a ball, **trained on the external games only** (the 2026-11-03 email rules out pseudo-labels on BAR-ATH);
    - restart-team evidence (see the findings below);
    - Smart Tagging phase priors, used as soft evidence only.
-4. Joint decoder. **Done** (`src/decode.py`). One Viterbi pass over {H, A, D after H, D after A} with team cost 10 and dead cost 40; restart memory and boundary snapping are off. The team cost was 6 until 2026-11-09. Sprint item E2 (`possession.DENSE`: also train on every live frame within ±12 frames of a change of team) sharpened P(home) at hand-overs and moved the plateau to 10–12, found with `experiment costgrid`. It matches steps 2+3 run in sequence, and both variants were tested and dropped (results below). Per-frame switch costs were also dropped in sprint items C2 and C6 (2026-11-08/09). A cost cut near events and a cost learned from a change detector (AUC 0.88 / 0.94) both lose or tie. Gains have to come from P(home).
+4. Joint decoder. **Done** (`src/decode.py`). One Viterbi pass over {H, A, D after H, D after A} with team cost 12 and dead cost 40; restart memory and boundary snapping are off. The team cost was 6 until 2026-11-09 and 10 until 2026-11-10, when the second stage (sprint item G4) moved its best to 12. Sprint item E2 (`possession.DENSE`: also train on every live frame within ±12 frames of a change of team) sharpened P(home) at hand-overs and moved the plateau to 10–12, found with `experiment costgrid`. It matches steps 2+3 run in sequence, and both variants were tested and dropped (results below). Per-frame switch costs were also dropped in sprint items C2 and C6 (2026-11-08/09). A cost cut near events and a cost learned from a change detector (AUC 0.88 / 0.94) both lose or tie. Gains have to come from P(home).
 5. Final run. **Done**: `src/run.py`, `requirements-pipeline.txt` (pinned, Python 3.9.6), and the draft `docs/technical_document.md`.
    - The output passes `validate_submission.py`.
    - A rebuild from an empty `data/cache/` was byte-identical (SHA-256 `e5a8c7b9…19264`; after step 6, `f4c9fc60…f422`).
@@ -173,16 +174,17 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
    - The rebuild from an empty cache is byte-identical (`22e4fd4c…4c35b4d`, ~5 min). The previous CSV is kept as `data/cache/possession_noise_v3_f4c9fc60.csv`.
    - BAR-ATH now gets 416 possessions of mean 9.8 s, 35.8% D across 125 stoppages, and home 57.0% of live time.
    - The rebuild from an empty cache is byte-identical (`f4c9fc60…f422`, ~5 min). The previous CSV is `e5a8c7b9…`.
-8. The sprint (2026-11-08/09, `docs/sprint_checklist.md`, which records every comparison). **Current submission: SHA-256 `dd9339ae…8f4b`**, rebuilt twice from an empty cache (~6 min) and validated.
+8. The sprint (2026-11-08/10, `docs/sprint_checklist.md`, which records every comparison). **Current submission: SHA-256 `ce4cdd87…26fb`**, rebuilt twice from an empty cache and validated. The E3 file (`dd9339ae…8f4b`) is kept as `data/cache/possession_e3_dd9339ae.csv`.
    - Kept:
      - noise v5's ball filter;
      - segment features (C5);
      - the Metrica unannotated-stoppage fix and noise v6 (D3);
      - dense training near changes with team cost 10 (E2);
-     - a second noise seed for training (E3).
-   - Bench, controlled spellF1, IDSSE / Metrica: 0.684 / 0.770; last touch 0.628 / 0.704.
-   - BAR-ATH: 315 possessions of mean 11.3 s, 44.1% D across 106 stoppages, home 60.7%.
-   - Everything else tried in the sprint lost or tied and is off behind flags. `docs/technical_document.md` is updated to this state.
+     - a second noise seed for training (E3);
+     - the second-stage team model (`src/stack.py`, `run.STACKED`) with team cost 12 (G4). It was kept as a gate exception by the user's decision: it wins 3/6 Metrica copies where the gate asks 4.
+   - Bench, controlled spellF1, IDSSE / Metrica: 0.690 / 0.770; last touch 0.637 / 0.710.
+   - BAR-ATH: 326 possessions of mean 10.9 s, 44.0% D across 106 stoppages, home 60.7%.
+   - Everything else tried in the sprint lost or tied and is off behind flags. That includes G1 (`deadball.DENSE`) and G3 (`features.EVENTS`). G2's learning curve (3 / 6 / 9 games: 0.673 / 0.678 / 0.684 IDSSE) says more games would still help a little. `docs/technical_document.md` is updated to this state.
 
 ## What the metric rewards
 

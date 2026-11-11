@@ -14,6 +14,9 @@ chosen on them (RULES.md, clarification of 2026-11-03):
      model's restart features need predictions their games were not trained on -- then one model
      on all 20 applied to BAR-ATH
   3. team model (src/possession.py) on all 20, applied to BAR-ATH using step 2's stoppages
+  3b. second stage (src/stack.py): the team model's out-of-fold P(home) for every training game
+     trains a second classifier that reads it over the 8 s around each frame, next to the first
+     stage's own features; it is applied to step 3's P(home) for BAR-ATH
   4. joint decoder (src/decode.py) over H / A / D, X outside the two graded halves
   5. write the CSV and run evaluation/validate_submission.py on it
 
@@ -29,7 +32,7 @@ import sys
 
 import numpy as np
 
-from . import deadball, decode, possession
+from . import deadball, decode, possession, segments, stack
 from .bench import bench_games
 from .features import as_matrix, frame_features
 from .match import CACHE_DIR, D, H, LABELS
@@ -42,6 +45,7 @@ import baseline  # noqa: E402  -- for write_submission, the format in four lines
 DEFAULT_OUT = os.path.join(ROOT, "evaluation", "results", "possession.csv")
 # Possession definition the external training labels follow (src/controlled.py).
 CONVENTION = "last_touch"
+STACKED = True   # step 3b, the second-stage team model (sprint item G4)
 
 
 def predict_bar(games):
@@ -66,10 +70,19 @@ def predict_bar(games):
     del extra
     tables, team_names = possession.build_tables(games)
     team_model = possession.fit(tables, [m.name for m in games], team_names, rows, list(rows))
-    del tables, rows
     stoppages = deadball.decode(p_dead, bar.period, possession.DEAD_PENALTY)
     _, views = possession.both_views(bar, stoppages)
     p_home = possession.p_home(team_model, views)
+    if STACKED:
+        print("step 3b second stage", flush=True)
+        p_first = possession.cross_validate(games, tables, team_names, extra=rows)
+        second = stack.fit([stack.rows(tables[m.name][0], p_first[m.name],
+                                       np.load(deadball.oof_path(m.name)), tables[m.name][2],
+                                       segments.match_events(m, tables[m.name][2]),
+                                       tables[m.name][1], m.name) for m in games])
+        p_home = stack.p_home(second, views, p_home, p_dead, stoppages,
+                              segments.match_events(bar, stoppages))
+    del tables, rows
 
     print("step 4  joint decoding", flush=True)
     labels = decode.decode(p_dead, p_home, bar.period, decode.TEAM_COST, decode.DEAD_COST,
