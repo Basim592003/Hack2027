@@ -703,10 +703,18 @@ Controlled labels, per match, IDSSE / Metrica:
         `<team_name>.pdf` or `.md`.
       - One response per team, editable until the deadline.
       - Deadline 17 Nov 2026; no time of day is given.
-    - Still to do:
-      - make the repo public;
-      - fill in the team name in `docs/technical_document.md` (lines 3, 207 and 208) and name the CSV after the team;
-      - send `docs/organiser_question.md`, or reword §3's "We have asked the organisers" (line 95).
+    - Done later that day:
+      - The team name, false 9 dev, is filled in.
+      - `evaluation/results/false 9 dev.csv` is the shipped file under that name: same SHA-256, and the validator
+        passes.
+      - `evaluation/results/false 9 dev.pdf` is the tech doc on 8 A4 pages, rendered to HTML by markdown-it-py and
+        printed by headless Chrome. It is gitignored, as `*.pdf` is.
+      - The user is not sending the organiser question. §3 now states the BAR-ATH-derived settings openly instead of
+        saying we asked.
+      - The figures were updated: §5's headroom was re-measured on the final pipeline, and §6 gained the gaps
+        breakdown.
+      - README.md now opens with a pointer to our pipeline and the tech doc.
+    - Still to do (user): make the repo public, then submit through the form.
 
 ## Out of scope
 GRU / 1D-CNN, Smart Tagging priors, and anything tuned on the public window. Stacking was out of scope until G4.

@@ -1,6 +1,6 @@
 # Ball possession from automatic tracking: technical document
 
-**Team:** [team name] · More Than A Hack 2027, Phase 1 · Submission: `[team_name].csv`
+**Team:** false 9 dev · More Than A Hack 2027, Phase 1 · Submission: `false 9 dev.csv` · Code: https://github.com/Basim592003/Hack2027
 
 ## 1. Approach
 
@@ -92,7 +92,7 @@ The amount of player and ball dropout and the ball's smoothing were set to match
 - how smooth positions are from frame to frame;
 - how often the ball's velocity changes over 4 frames against 12.
 
-Re-rendering the dead ball was prompted by one more such statistic: in the 5 s before a tagged set piece, the provided ball is still on only 4% of the frames it is seen. Its durations and speeds were not fitted to that. No ground truth and no video were involved. We have asked the organisers to confirm this is within the 2026-11-03 rules clarification. Where a value could only be read off the provided game, such as the ball filter's width, training draws it from a wide range around that value instead.
+Re-rendering the dead ball was prompted by one more such statistic: in the 5 s before a tagged set piece, the provided ball is still on only 4% of the frames it is seen. Its durations and speeds were not fitted to that. No ground truth and no video were involved. These are aggregates of the provided input, used to make the training data realistic rather than to tune the algorithm. We read that as within the 2026-11-03 rules clarification, and list each such statistic here so the organisers can judge. Where a value could only be read off the provided game, such as the ball filter's width, training draws it from a wide range around that value instead.
 
 ## 4. Possession rules as implemented
 
@@ -162,7 +162,7 @@ Its evaluation is nested. Each held-out game's second stage is trained on team-m
 - Re-rendering the dead ball (§3): the earlier dead ball was too easy. Any visible stoppage ball was perfectly still, so the detector learned that a moving ball means play is live. On the re-rendered bench the previous pipeline scores 0.621 / 0.676 against 0.672 / 0.700, and it loses on every one of the 20 games.
 - Smoothing the ball (§3): on the most heavily smoothed copies, training with the filter gains +0.05 controlled spellF1, on all 6 copies.
 
-**Where the remaining error is.** These figures were measured before the last four steps. On the bench, giving the decoder the true team would raise controlled spellF1 by +0.29 / +0.19, the true dead ball by +0.04 / +0.08, and perfect timing of team changes by +0.04 / +0.03. So the errors left are mostly *which* team has the ball in short possessions.
+**Where the remaining error is.** On the bench, giving the final pipeline's decoder the true team would raise controlled spellF1 by +0.27 / +0.18, the true dead ball by +0.03 / +0.05, and perfect timing of team changes by +0.05 / +0.03. So the errors left are mostly *which* team has the ball in short possessions (§6).
 
 **Does it carry over to BAR-ATH?** We can't score that without labels, but some checks need none. None of them was used to choose anything.
 - **Ball filter.** Kicks are as frequent on BAR-ATH as on the bench: 8.9 per graded minute, against 8.8 on the IDSSE copies.
@@ -188,7 +188,7 @@ Its evaluation is nested. Each held-out game's second stage is trained on team-m
 
 ## 6. Limitations
 
-- **Short possessions.** On frames of real possessions under 2 s that start in play, the second stage gives the true team a probability of only about one half on average: 0.54 / 0.54, up from 0.46 / 0.44 before the denser training and the second stage. Possessions that start with a turnover in play are matched 61% / 70% of the time (IoU 0.5), far less often than those that start at a restart.
+- **Short possessions.** On frames of real possessions under 2 s that start in play, the second stage gives the true team a probability of only about one half on average: 0.54 / 0.54, up from 0.46 / 0.44 before the denser training and the second stage. Possessions that start with a turnover in play are matched 61% / 70% of the time (IoU 0.5), far less often than those that start at a restart. Possessions under 4 s are 42% / 34% of all real ones, and 46% / 52% of them are matched, against 87% / 91% of those over 8 s. Four in five misses are possessions given to the wrong team, or run together with a neighbour when a brief possession between them is missed.
 - **Few labelled games.** Trained on 3, 6 and 9 of the other games, the team model scores 0.673 / 0.758, 0.678 / 0.761 and 0.684 / 0.770, so it is still gaining from data. The public candidates were not brought in: PFF's World Cup 2022 games and SkillCorner's A-League games are broadcast tracking from other providers, and there was not time to convert and check them.
 - **Convention gap.** The models are trained on last-touch labels and scored on our reading of controlled possession. BAR-ATH's annotators may draw the line differently.
 - **Unknown ball-loss pattern.** How often and for how long the ball is lost during live play on BAR-ATH cannot be measured without labels. The bench draws gap lengths over a wide range. BAR-ATH's ball is never missing for 1–4 s, so its tracker evidently fills short losses, while the bench's often is. Short gaps are decoded correctly on the bench (1–2% wrongly called dead), so this probably costs little.
@@ -204,8 +204,8 @@ Python 3.9.6, `pip install -r requirements-pipeline.txt`, with the match data un
 ```bash
 python -m src.fetch_metrica      # external data, pinned to commit e706dd5
 python -m src.fetch_idsse        # external data via the figshare API, MD5-checked (~2.5 GB)
-python -m src.run --out evaluation/results/[team_name].csv
-python evaluation/validate_submission.py evaluation/results/[team_name].csv
+python -m src.run --out "evaluation/results/false 9 dev.csv"
+python evaluation/validate_submission.py "evaluation/results/false 9 dev.csv"
 ```
 
 `src.run` takes about 18 minutes from an empty cache on a 10-core laptop with 16 GB of RAM, peaking at 5.3 GB. It is deterministic: fixed seeds, a fixed model `random_state` and pinned inputs. Two rebuilds from an empty `data/cache/` reproduced the file byte for byte (SHA-256 `ce4cdd876e5b8ebc4728b518ad56d476c23130a5d1a638cf06c7a941799926fb`).
@@ -218,6 +218,7 @@ To reproduce §5:
 - `python -m src.experiment learncurve` trains the team model on fewer of the games;
 - `python -m src.experiment compare A B` pairs two runs copy by copy;
 - `python -m src.experiment oracles` gives the headroom;
+- `python -m src.diag.gaps NAME` breaks a saved run's missed possessions down by length, cause and how they start;
 - `python -m src.experiment costgrid NAME` gives the decoder costs;
 - `python -m src.experiment eventgrid` and `boundarygrid` give the per-frame switch costs;
 - `python -m src.segments`, `src.flight`, `src.lagcheck`, `src.touches` and `src.coverage` give the carry-over checks, which print BAR-ATH aggregates only.
