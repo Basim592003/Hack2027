@@ -162,7 +162,7 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
    - restart-team evidence (see the findings below);
    - Smart Tagging phase priors, used as soft evidence only.
 4. Joint decoder. **Done** (`src/decode.py`). One Viterbi pass over {H, A, D after H, D after A} with team cost 12 and dead cost 40; restart memory and boundary snapping are off. The team cost was 6 until 2026-11-09 and 10 until 2026-11-10, when the second stage (sprint item G4) moved its best to 12. Sprint item E2 (`possession.DENSE`: also train on every live frame within ±12 frames of a change of team) sharpened P(home) at hand-overs and moved the plateau to 10–12, found with `experiment costgrid`. It matches steps 2+3 run in sequence, and both variants were tested and dropped (results below). Per-frame switch costs were also dropped in sprint items C2 and C6 (2026-11-08/09). A cost cut near events and a cost learned from a change detector (AUC 0.88 / 0.94) both lose or tie. Gains have to come from P(home).
-5. Final run. **Done**: `src/run.py`, `requirements-pipeline.txt` (pinned, Python 3.9.6), and the draft `docs/technical_document.md`.
+5. Final run. **Done**: `src/run.py`, `requirements-pipeline.txt` (pinned, Python 3.9.6), and the tech doc: `docs/technical_document.md` is the short submitted version, `docs/technical_details.md` the full one (split 2026-11-15).
    - The output passes `validate_submission.py`.
    - A rebuild from an empty `data/cache/` was byte-identical (SHA-256 `e5a8c7b9…19264`; after step 6, `f4c9fc60…f422`).
    - Public-window alignment check: spellF1 0.484, 21 possessions against 17 real. Pipeline check only; never use it to choose anything.
@@ -184,7 +184,7 @@ To clone the Metrica sample data again: `git clone --depth 1 https://github.com/
      - the second-stage team model (`src/stack.py`, `run.STACKED`) with team cost 12 (G4). It was kept as a gate exception by the user's decision: it wins 3/6 Metrica copies where the gate asks 4.
    - Bench, controlled spellF1, IDSSE / Metrica: 0.690 / 0.770; last touch 0.637 / 0.710.
    - BAR-ATH: 326 possessions of mean 10.9 s, 44.0% D across 106 stoppages, home 60.7%.
-   - Everything else tried in the sprint lost or tied and is off behind flags. That includes G1 (`deadball.DENSE`) and G3 (`features.EVENTS`). G2's learning curve (3 / 6 / 9 games: 0.673 / 0.678 / 0.684 IDSSE) says more games would still help a little. `docs/technical_document.md` is updated to this state.
+   - Everything else tried in the sprint lost or tied and is off behind flags. That includes G1 (`deadball.DENSE`) and G3 (`features.EVENTS`). G2's learning curve (3 / 6 / 9 games: 0.673 / 0.678 / 0.684 IDSSE) says more games would still help a little. `docs/technical_details.md` and the short `docs/technical_document.md` are updated to this state.
 
 ## What the metric rewards
 
