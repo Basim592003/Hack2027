@@ -691,6 +691,22 @@ Controlled labels, per match, IDSSE / Metrica:
     Send the organiser question in `docs/organiser_question.md`: the tech doc says "We have asked the organisers",
     so that sentence must be true before submitting.
 - [ ] **F4** The user submits the CSV, the repo link and the tech doc through the form.
+  - Checked 2026-11-15:
+    - Nothing new to pull. upstream's last commit is still `f8f2629` (2026-10-23), and origin matches main.
+    - `validate_submission.py` passes on `evaluation/results/possession.csv` (SHA-256 `ce4cdd87…26fb`, 326
+      possessions).
+    - **origin is private**: github.com/Basim592003/Hack2027 returns 404 to a logged-out visitor, and the form needs
+      a public URL. The history is safe to publish: nothing under `data/` was ever committed except the organisers'
+      `data/README.md`, the starter notebook has no output cells, and the largest file we added is 55 KB.
+    - The form (SUBMISSION.md) is a Google Form whose link the organisers email to registered participants.
+      - Fields: the team name as registered, `<team_name>.csv`, the public repo URL, and the tech doc as
+        `<team_name>.pdf` or `.md`.
+      - One response per team, editable until the deadline.
+      - Deadline 17 Nov 2026; no time of day is given.
+    - Still to do:
+      - make the repo public;
+      - fill in the team name in `docs/technical_document.md` (lines 3, 207 and 208) and name the CSV after the team;
+      - send `docs/organiser_question.md`, or reword §3's "We have asked the organisers" (line 95).
 
 ## Out of scope
 GRU / 1D-CNN, Smart Tagging priors, and anything tuned on the public window. Stacking was out of scope until G4.
